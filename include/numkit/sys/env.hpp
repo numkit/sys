@@ -1,4 +1,6 @@
-// include/numkit/sys/branding.hpp
+// include/numkit/sys/env.hpp
+//
+// Cross-platform environment variable access and manipulation.
 #pragma once
 
 #include <cstdlib>

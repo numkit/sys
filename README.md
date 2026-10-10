@@ -10,7 +10,7 @@ Part of the **NumKit** modular runtime architecture (Layer 0.5 System).
 - **Virtual Filesystem (`numkit/sys/vfs.hpp`)**: Unified filesystem abstraction supporting `NativeFS` (host OS via `std::filesystem`) and `CallbackFS` (browser/WASM IndexedDB, custom virtual directories).
 - **Filesystem Context (`numkit/sys/fs_context.hpp`)**: Engine-agnostic filesystem session, script-origin tracking (`pushScriptOrigin`/`popScriptOrigin`), and path resolution.
 - **Plugin ABI & Boundary (`numkit/sys/plugin.hpp`)**: Host-to-plugin interface (`PluginContext`, `CallContext`, `NUMKIT_PLUGIN_ABI_VERSION`), dynamic module registration and lifecycle.
-- **Environment & Branding (`numkit/sys/branding.hpp`)**: Environment variable access (`NUMKIT_CWD`, `NUMKIT_FS`).
+- **Environment Handling (`numkit/sys/env.hpp`)**: Environment variable access (`NUMKIT_CWD`, `NUMKIT_FS`).
 
 ## Dependencies
 
