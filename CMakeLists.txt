@@ -28,6 +28,7 @@ set(NUMKIT_SYS_SOURCES
     src/vfs.cpp
     src/fs_context.cpp
     src/process.cpp
+    src/toolchain.cpp
 )
 
 add_library(numkit_sys STATIC ${NUMKIT_SYS_SOURCES})
