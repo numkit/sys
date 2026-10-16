@@ -7,6 +7,7 @@
 #include <numkit/value/span.hpp>
 #include <numkit/value/error.hpp>
 #include <numkit/sys/process.hpp>
+#include <numkit/sys/fs_context.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -37,6 +38,9 @@
 
 namespace numkit {
 
+namespace ops { class RngContext; }
+class FigureManager;
+
 #if defined(NUMKIT_CORE_BUILD)
 class Engine;
 #endif
@@ -63,14 +67,23 @@ public:
         (void)handle; (void)args; (void)env;
         return Value();
     }
-    virtual std::vector<Value> callFunctionHandleMulti(const Value &handle, Span<const Value> args, size_t nargout) {
-        (void)handle; (void)args; (void)nargout;
+    virtual std::vector<Value> callFunctionHandleMulti(const Value &handle, Span<const Value> args, size_t nargout, void *env = nullptr) {
+        (void)handle; (void)args; (void)nargout; (void)env;
         return {};
     }
     virtual uint32_t abiVersion() const noexcept { return NUMKIT_PLUGIN_ABI_VERSION; }
 
     virtual sys::ProcessResult runProcess(const std::string &command) {
         return sys::runProcess(command);
+    }
+
+    virtual ops::RngContext &rng() = 0;
+    virtual FsContext::ResolvedPath resolvePath(const std::string &userPath) const = 0;
+    virtual FigureManager &figureManager() = 0;
+    virtual void registerBuiltinMSource(const std::string &src) { (void)src; }
+    virtual const ExternalFunc *findExternal(const std::string &name, const Environment *env = nullptr) const {
+        (void)name; (void)env;
+        return nullptr;
     }
 };
 
