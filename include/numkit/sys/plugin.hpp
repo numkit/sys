@@ -46,7 +46,7 @@ class Engine;
 #endif
 
 class PluginContext;
-struct Environment;
+class Environment;
 struct CallContext;
 
 // Signature of external functions registered into the engine
