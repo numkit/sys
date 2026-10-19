@@ -209,7 +209,9 @@ int FsContext::openFile(const std::string &userPath, const std::string &modeRaw)
     if (appendOnly)
         f.cursor = f.buffer.size();
 
-    int fid = nextFid_++;
+    int fid = 3;
+    while (openFiles_.find(fid) != openFiles_.end())
+        ++fid;
     openFiles_.emplace(fid, std::move(f));
     return fid;
 }
