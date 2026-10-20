@@ -192,7 +192,10 @@ int FsContext::openFile(const std::string &userPath, const std::string &modeRaw)
         try {
             if (r.fs->exists(r.path))
                 f.buffer = r.fs->readFile(r.path);
-            else if (requireExisting) {
+            else if (requireExisting && !isAbsolutePath(userPath) && r.fs->exists(userPath)) {
+                f.path = userPath;
+                f.buffer = r.fs->readFile(userPath);
+            } else if (requireExisting) {
                 lastFopenError_ = "No such file or directory";
                 return -1;
             }
