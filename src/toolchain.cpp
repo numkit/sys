@@ -1,6 +1,7 @@
 // src/toolchain.cpp
 //
-// Cross-platform discovery of CMake, Git, and C++ compilers (MSVC, Clang, GCC/MinGW, Zig C++).
+// Cross-platform discovery of CMake, Ninja, Git, and C++ compilers
+// (Zig C++, MSVC, Clang, GCC/MinGW), including ~/.numkit/toolchain/.
 
 #include <numkit/sys/toolchain.hpp>
 #include <numkit/sys/process.hpp>
@@ -20,7 +21,32 @@ std::string firstLine(const std::string &s) {
     return (pos == std::string::npos) ? s : s.substr(0, pos);
 }
 
-ToolInfo probeCandidate(const std::string &name, const std::string &exePath, const std::string &versionArg = "--version", const std::string &extraArgs = "") {
+fs::path userNumkitPrefix() {
+    std::string custom = envGet("NUMKIT_PREFIX");
+    if (!custom.empty()) return fs::path(custom);
+#ifdef _WIN32
+    std::string home = envGet("USERPROFILE");
+    if (home.empty()) {
+        home = envGet("HOMEDRIVE") + envGet("HOMEPATH");
+    }
+#else
+    std::string home = envGet("HOME");
+#endif
+    if (home.empty()) return fs::path(".numkit");
+    return fs::path(home) / ".numkit";
+}
+
+std::string exeName(const char *base) {
+#ifdef _WIN32
+    return std::string(base) + ".exe";
+#else
+    return std::string(base);
+#endif
+}
+
+ToolInfo probeCandidate(const std::string &name, const std::string &exePath,
+                        const std::string &versionArg = "--version",
+                        const std::string &extraArgs = "") {
     ToolInfo info;
     info.name = name;
     info.path = exePath;
@@ -41,6 +67,23 @@ ToolInfo probeCandidate(const std::string &name, const std::string &exePath, con
 } // namespace
 
 ToolInfo findCMake() {
+    std::error_code ec;
+    fs::path prefix = userNumkitPrefix();
+    const fs::path portableCandidates[] = {
+        prefix / "toolchain" / "cmake" / "bin" / exeName("cmake"),
+        prefix / "toolchain" / "cmake" / "CMake.app" / "Contents" / "bin" / "cmake",
+        prefix / "bin" / exeName("cmake")
+    };
+    for (const auto &p : portableCandidates) {
+        if (fs::exists(p, ec) && fs::is_regular_file(p, ec)) {
+            ToolInfo info;
+            info.found = true;
+            info.name = "cmake";
+            info.path = p.string();
+            return info;
+        }
+    }
+
     if (isCommandAvailable("cmake")) {
         auto info = probeCandidate("cmake", "cmake");
         if (info.found) return info;
@@ -67,12 +110,61 @@ ToolInfo findCMake() {
     };
 #endif
 
-    std::error_code ec;
     for (const char *c : candidates) {
         if (fs::exists(c, ec) && fs::is_regular_file(c, ec)) {
             ToolInfo info;
             info.found = true;
             info.name = "cmake";
+            info.path = c;
+            return info;
+        }
+    }
+
+    return {};
+}
+
+ToolInfo findNinja() {
+    std::error_code ec;
+    fs::path prefix = userNumkitPrefix();
+    const fs::path portableCandidates[] = {
+        prefix / "toolchain" / "ninja" / exeName("ninja"),
+        prefix / "bin" / exeName("ninja")
+    };
+    for (const auto &p : portableCandidates) {
+        if (fs::exists(p, ec) && fs::is_regular_file(p, ec)) {
+            ToolInfo info;
+            info.found = true;
+            info.name = "ninja";
+            info.path = p.string();
+            return info;
+        }
+    }
+
+    if (isCommandAvailable("ninja")) {
+        auto info = probeCandidate("ninja", "ninja");
+        if (info.found) return info;
+    }
+
+#ifdef _WIN32
+    const char *candidates[] = {
+        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja\\ninja.exe",
+        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja\\ninja.exe",
+        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja\\ninja.exe",
+        "C:\\Program Files\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja\\ninja.exe"
+    };
+#else
+    const char *candidates[] = {
+        "/usr/local/bin/ninja",
+        "/opt/homebrew/bin/ninja",
+        "/usr/bin/ninja"
+    };
+#endif
+
+    for (const char *c : candidates) {
+        if (fs::exists(c, ec) && fs::is_regular_file(c, ec)) {
+            ToolInfo info;
+            info.found = true;
+            info.name = "ninja";
             info.path = c;
             return info;
         }
@@ -118,12 +210,39 @@ ToolInfo findGit() {
     return {};
 }
 
+ToolInfo findZig() {
+    std::error_code ec;
+    fs::path prefix = userNumkitPrefix();
+    const fs::path portableCandidates[] = {
+        prefix / "toolchain" / "zig" / exeName("zig"),
+        prefix / "bin" / exeName("zig")
+    };
+    for (const auto &p : portableCandidates) {
+        if (fs::exists(p, ec) && fs::is_regular_file(p, ec)) {
+            auto info = probeCandidate("zig c++", p.string(), "version", "c++");
+            if (info.found) return info;
+        }
+    }
+
+    if (isCommandAvailable("zig")) {
+        auto info = probeCandidate("zig c++", "zig", "version", "c++");
+        if (info.found) return info;
+    }
+
+    return {};
+}
+
 std::vector<ToolInfo> findAllCxxCompilers() {
     std::vector<ToolInfo> result;
     std::error_code ec;
 
+    // 1. Check portable / system zig c++ first
+    if (auto zig = findZig(); zig.found) {
+        result.push_back(std::move(zig));
+    }
+
 #ifdef _WIN32
-    // 1. Check MSVC via vswhere or standard VS 2022/2019 paths
+    // 2. Check MSVC via vswhere or standard VS 2022/2019 paths
     const char *vswhere = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe";
     if (fs::exists(vswhere, ec)) {
         auto res = runProcess("\"" + std::string(vswhere) + "\" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath");
@@ -140,21 +259,15 @@ std::vector<ToolInfo> findAllCxxCompilers() {
     }
 #endif
 
-    // 2. Check clang++
+    // 3. Check clang++
     if (isCommandAvailable("clang++")) {
         auto info = probeCandidate("clang++", "clang++");
         if (info.found) result.push_back(std::move(info));
     }
 
-    // 3. Check g++ (GCC / MinGW)
+    // 4. Check g++ (GCC / MinGW)
     if (isCommandAvailable("g++")) {
         auto info = probeCandidate("g++", "g++");
-        if (info.found) result.push_back(std::move(info));
-    }
-
-    // 4. Check zig c++
-    if (isCommandAvailable("zig")) {
-        auto info = probeCandidate("zig c++", "zig", "version", "c++");
         if (info.found) result.push_back(std::move(info));
     }
 
