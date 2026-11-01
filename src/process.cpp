@@ -42,11 +42,16 @@ namespace numkit::sys {
 ProcessResult runProcess(const std::string &command)
 {
     ProcessResult r;
-    // Capture combined stdout and stderr
-    std::string fullCmd = command + " 2>&1";
+    // Capture combined stdout and stderr.
+    // On Windows, _popen invokes `cmd.exe /c <string>`, which strips the first
+    // and last quote when the command starts with `"` and contains multiple
+    // quoted arguments; wrapping the entire string in outer quotes preserves
+    // inner quotes intact.
 #ifdef _WIN32
+    std::string fullCmd = "\"" + command + " 2>&1\"";
     FILE *pipe = popen_cmd(fullCmd.c_str(), "rt");
 #else
+    std::string fullCmd = command + " 2>&1";
     FILE *pipe = popen_cmd(fullCmd.c_str(), "r");
 #endif
 
