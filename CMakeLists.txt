@@ -5,7 +5,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(NUMKIT_SYS_BUILD_TESTS "Build GoogleTest suite for numkit/sys" ON)
+option(NUMKIT_BUILD_TESTS "Build GoogleTest suite" ON)
+option(NUMKIT_SYS_BUILD_TESTS "Build GoogleTest suite for numkit/sys" ${NUMKIT_BUILD_TESTS})
 
 include(FetchContent)
 
@@ -65,14 +66,16 @@ install(DIRECTORY include/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
-if(NUMKIT_SYS_BUILD_TESTS)
+if(NUMKIT_SYS_BUILD_TESTS AND NUMKIT_BUILD_TESTS)
     enable_testing()
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG v1.14.0
+        GIT_SHALLOW TRUE
     )
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
 
     add_executable(numkit_sys_test
