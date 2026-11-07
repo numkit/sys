@@ -4,6 +4,7 @@
 #pragma once
 
 #include <numkit/value/value.hpp>
+#include <numkit/value/object.hpp>
 #include <numkit/value/span.hpp>
 #include <numkit/value/error.hpp>
 #include <numkit/sys/process.hpp>
@@ -84,6 +85,14 @@ public:
     virtual const ExternalFunc *findExternal(const std::string &name, const Environment *env = nullptr) const {
         (void)name; (void)env;
         return nullptr;
+    }
+    virtual void registerClass(BuiltinClass cls) { (void)cls; }
+    virtual const BuiltinClass *findClass(const std::string &name) const {
+        (void)name;
+        return nullptr;
+    }
+    virtual void assignToCaller(int n, const std::string &name, Value val) {
+        (void)n; (void)name; (void)val;
     }
 };
 
