@@ -33,6 +33,7 @@ bool isCommandAvailable(const std::string &/*commandName*/)
   #define popen_cmd _popen
   #define pclose_cmd _pclose
 #else
+  #include <sys/wait.h>
   #define popen_cmd ::popen
   #define pclose_cmd ::pclose
 #endif
@@ -67,7 +68,12 @@ ProcessResult runProcess(const std::string &command)
         ss << buf;
     }
 
-    r.exitCode = pclose_cmd(pipe);
+    int status = pclose_cmd(pipe);
+#ifdef _WIN32
+    r.exitCode = status;
+#else
+    r.exitCode = (status != -1 && WIFEXITED(status)) ? WEXITSTATUS(status) : status;
+#endif
     r.output = ss.str();
     return r;
 }
