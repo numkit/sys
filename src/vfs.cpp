@@ -53,12 +53,17 @@ std::string NativeFS::readFile(const std::string &path)
 
 void NativeFS::writeFile(const std::string &path, const std::string &content)
 {
-    std::ofstream f(toFsPath(path), std::ios::binary);
-    if (!f)
-        throw std::runtime_error("cannot open '" + path + "' for writing");
-    f.write(content.data(), static_cast<std::streamsize>(content.size()));
-    if (!f)
-        throw std::runtime_error("write to '" + path + "' failed");
+    auto fp = toFsPath(path);
+    {
+        std::ofstream f(fp, std::ios::binary);
+        if (!f)
+            throw std::runtime_error("cannot open '" + path + "' for writing");
+        f.write(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!f)
+            throw std::runtime_error("write to '" + path + "' failed");
+    }
+    std::error_code ec;
+    std::filesystem::last_write_time(fp, std::filesystem::file_time_type::clock::now(), ec);
 }
 
 bool NativeFS::exists(const std::string &path)
@@ -110,6 +115,7 @@ std::optional<FileStat> NativeFS::stat(const std::string &path)
     if (!mec) {
         auto dur = t.time_since_epoch();
         fs.mtime = std::chrono::duration_cast<std::chrono::seconds>(dur).count();
+        fs.mtimeNs = std::chrono::duration_cast<std::chrono::nanoseconds>(dur).count();
     }
     return fs;
 }

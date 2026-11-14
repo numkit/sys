@@ -26,6 +26,7 @@ struct FileStat
     int64_t size = 0;        // bytes (0 for directories)
     int64_t mtime = 0;       // last-modified time, seconds since epoch
                              // (0 if backend can't supply one)
+    int64_t mtimeNs = 0;     // high-resolution mtime in nanoseconds since epoch
     enum class Kind { File, Directory, Other };
     Kind kind = Kind::Other;
 };
