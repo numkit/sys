@@ -32,6 +32,11 @@ public:
 
     ~LitePluginContext() override = default;
 
+    LitePluginContext(const LitePluginContext &) = delete;
+    LitePluginContext &operator=(const LitePluginContext &) = delete;
+    LitePluginContext(LitePluginContext &&) = delete;
+    LitePluginContext &operator=(LitePluginContext &&) = delete;
+
     void setRng(ops::RngContext *rng) noexcept { rng_ = rng; }
 
     std::pmr::memory_resource *resource() const noexcept override { return mr_; }
@@ -59,7 +64,7 @@ public:
         bareFuncs_[name] = wrapWithSelf(std::move(func));
     }
 
-    Value callFunctionHandle(const Value &handle, Span<const Value> args, void * /*env*/) override
+    Value callFunctionHandle(const Value &handle, Span<const Value> args, Environment * /*env*/) override
     {
         auto res = callFunctionHandleMulti(handle, args, 1, nullptr);
         return res.empty() ? Value() : std::move(res[0]);
@@ -68,7 +73,7 @@ public:
     std::vector<Value> callFunctionHandleMulti(const Value &handle,
                                                Span<const Value> args,
                                                size_t nargout,
-                                               void * /*env*/) override
+                                               Environment * /*env*/) override
     {
         std::string fnName;
         if (handle.isFuncHandle()) {
