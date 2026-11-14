@@ -44,6 +44,30 @@ std::string exeName(const char *base) {
 #endif
 }
 
+std::string quoteCmdPath(const std::string &p) {
+#ifdef _WIN32
+    std::string out = "\"";
+    for (char ch : p) {
+        if (ch == '"')
+            out += "\\\"";
+        else
+            out.push_back(ch);
+    }
+    out.push_back('"');
+    return out;
+#else
+    std::string out = "'";
+    for (char ch : p) {
+        if (ch == '\'')
+            out += "'\\''";
+        else
+            out.push_back(ch);
+    }
+    out.push_back('\'');
+    return out;
+#endif
+}
+
 ToolInfo probeCandidate(const std::string &name, const std::string &exePath,
                         const std::string &versionArg = "--version",
                         const std::string &extraArgs = "") {
@@ -52,7 +76,12 @@ ToolInfo probeCandidate(const std::string &name, const std::string &exePath,
     info.path = exePath;
     info.extraArgs = extraArgs;
 
-    std::string cmd = "\"" + exePath + "\"";
+    for (unsigned char ch : exePath) {
+        if (ch < 0x20 || ch == 0x7F)
+            return info;
+    }
+
+    std::string cmd = quoteCmdPath(exePath);
     if (!extraArgs.empty()) cmd += " " + extraArgs;
     if (!versionArg.empty()) cmd += " " + versionArg;
 

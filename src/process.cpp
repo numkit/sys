@@ -80,11 +80,32 @@ ProcessResult runProcess(const std::string &command)
 
 bool isCommandAvailable(const std::string &commandName)
 {
+    if (commandName.empty())
+        return false;
+    for (unsigned char ch : commandName) {
+        if (ch < 0x20 || ch == 0x7F)
+            return false;
+    }
 #ifdef _WIN32
-    std::string probe = "where " + commandName + " >nul 2>nul";
+    for (char ch : commandName) {
+        if (ch == '"' || ch == '&' || ch == '|' || ch == ';' || ch == '<' ||
+            ch == '>' || ch == '^' || ch == '%' || ch == '!' || ch == '`')
+            return false;
+    }
+    std::string probe = "where \"" + commandName + "\" >nul 2>nul";
     return std::system(probe.c_str()) == 0;
 #else
-    std::string probe = "command -v " + commandName + " >/dev/null 2>&1";
+    if (commandName[0] == '-')
+        return false;
+    std::string quoted = "'";
+    for (char ch : commandName) {
+        if (ch == '\'')
+            quoted += "'\\''";
+        else
+            quoted.push_back(ch);
+    }
+    quoted.push_back('\'');
+    std::string probe = "command -v -- " + quoted + " >/dev/null 2>&1";
     return std::system(probe.c_str()) == 0;
 #endif
 }
