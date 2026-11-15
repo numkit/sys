@@ -9,10 +9,11 @@
 #include <numkit/sys/plugin.hpp>
 #include <numkit/value/error.hpp>
 #include <numkit/value/object.hpp>
-#include <numkit/value/span.hpp>
 #include <numkit/value/value.hpp>
 
-#include <memory_resource>
+#include <keel/memory.h>
+#include <keel/ref.h>
+
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -24,9 +25,9 @@ class LitePluginContext final : public PluginContext
 {
 public:
     explicit LitePluginContext(ops::RngContext *rng = nullptr,
-                               std::pmr::memory_resource *mr = std::pmr::get_default_resource())
+                               keel::Allocator *alloc = keel::default_allocator())
         : rng_(rng)
-        , mr_(mr ? mr : std::pmr::get_default_resource())
+        , alloc_(alloc ? alloc : keel::default_allocator())
     {
     }
 
@@ -39,7 +40,7 @@ public:
 
     void setRng(ops::RngContext *rng) noexcept { rng_ = rng; }
 
-    std::pmr::memory_resource *resource() const noexcept override { return mr_; }
+    keel::Allocator *allocator() const noexcept override { return alloc_; }
 
     void registerFunction(const std::string &ns, const std::string &name, ExternalFunc func) override
     {
@@ -64,15 +65,15 @@ public:
         bareFuncs_[name] = wrapWithSelf(std::move(func));
     }
 
-    Value callFunctionHandle(const Value &handle, Span<const Value> args, Environment * /*env*/) override
+    Value callFunctionHandle(const Value &handle, keel::ArrayRef<Value> args, Environment * /*env*/) override
     {
         auto res = callFunctionHandleMulti(handle, args, 1, nullptr);
         return res.empty() ? Value() : std::move(res[0]);
     }
 
     std::vector<Value> callFunctionHandleMulti(const Value &handle,
-                                               Span<const Value> args,
-                                               size_t nargout,
+                                               keel::ArrayRef<Value> args,
+                                               keel::usize nargout,
                                                Environment * /*env*/) override
     {
         std::string fnName;
@@ -89,10 +90,10 @@ public:
         if (!fn) {
             throw std::runtime_error("Undefined function handle '" + fnName + "'");
         }
-        size_t actualOut = nargout == 0 ? 1 : nargout;
+        keel::usize actualOut = nargout == 0 ? 1 : nargout;
         std::vector<Value> outs(actualOut);
         CallContext ctx{reinterpret_cast<Engine *>(static_cast<PluginContext *>(this)), nullptr};
-        (*fn)(args, nargout, Span<Value>(outs.data(), outs.size()), ctx);
+        (*fn)(args, nargout, keel::MutArrayRef<Value>(outs.data(), outs.size()), ctx);
         return outs;
     }
 
@@ -129,9 +130,9 @@ public:
         std::string className = cls.name;
         if (cls.construct && bareFuncs_.find(className) == bareFuncs_.end()) {
             auto ctor = cls.construct;
-            registerFunction(className, [ctor](Span<const Value> args,
-                                               size_t /*nargout*/,
-                                               Span<Value> outs,
+            registerFunction(className, [ctor](keel::ArrayRef<Value> args,
+                                               keel::usize /*nargout*/,
+                                               keel::MutArrayRef<Value> outs,
                                                CallContext &ctx) {
                 if (!outs.empty()) {
                     outs[0] = ctor(args, ctx);
@@ -147,7 +148,7 @@ public:
         return it != classes_.end() ? &it->second : nullptr;
     }
 
-    void assignToCaller(int /*n*/, const std::string &name, Value val) override
+    void assignToCaller(keel::i32 /*n*/, const std::string &name, Value val) override
     {
         callerVars_[name] = std::move(val);
     }
@@ -167,9 +168,9 @@ public:
     }
 
     void invokeResolved(const ExternalFunc *fn,
-                        Span<const Value> args,
-                        size_t nargout,
-                        Span<Value> outs)
+                        keel::ArrayRef<Value> args,
+                        keel::usize nargout,
+                        keel::MutArrayRef<Value> outs)
     {
         if (!fn) {
             throw std::invalid_argument("Null pre-resolved function pointer");
@@ -180,9 +181,9 @@ public:
 
     void invoke(const std::string &ns,
                 const std::string &name,
-                Span<const Value> args,
-                size_t nargout,
-                Span<Value> outs)
+                keel::ArrayRef<Value> args,
+                keel::usize nargout,
+                keel::MutArrayRef<Value> outs)
     {
         CallContext ctx{reinterpret_cast<Engine *>(static_cast<PluginContext *>(this)), nullptr};
 
@@ -192,7 +193,7 @@ public:
                 auto mIt = cls->methods.find(name);
                 if (mIt != cls->methods.end() && mIt->second) {
                     Value selfCopy = args[0];
-                    Span<const Value> rest(args.data() + 1, args.size() - 1);
+                    keel::ArrayRef<Value> rest = args.slice(1);
                     mIt->second(selfCopy, rest, nargout, outs, ctx);
                     return;
                 }
@@ -224,7 +225,7 @@ public:
                 Value out;
                 CallContext ctx{
                     reinterpret_cast<Engine *>(const_cast<LitePluginContext *>(this)), nullptr};
-                charIt->second(selfCopy, Span<const Value>(), 1, Span<Value>(&out, 1), ctx);
+                charIt->second(selfCopy, keel::ArrayRef<Value>(), 1, keel::MutArrayRef<Value>(&out, 1), ctx);
                 if (out.isChar() || out.isString()) {
                     return out.toString();
                 }
@@ -242,9 +243,9 @@ public:
 private:
     ExternalFunc wrapWithSelf(ExternalFunc func)
     {
-        return [this, fn = std::move(func)](Span<const Value> args,
-                                            size_t nargout,
-                                            Span<Value> outs,
+        return [this, fn = std::move(func)](keel::ArrayRef<Value> args,
+                                            keel::usize nargout,
+                                            keel::MutArrayRef<Value> outs,
                                             CallContext &ctx) {
             CallContext localCtx = ctx;
             localCtx.engine = reinterpret_cast<Engine *>(static_cast<PluginContext *>(this));
@@ -253,7 +254,7 @@ private:
     }
 
     ops::RngContext *rng_;
-    std::pmr::memory_resource *mr_;
+    keel::Allocator *alloc_;
     FsContext fs_;
     std::unordered_map<std::string, ExternalFunc> qualifiedFuncs_;
     std::unordered_map<std::string, ExternalFunc> bareFuncs_;

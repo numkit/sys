@@ -7,23 +7,34 @@
 #include <numkit/sys/process.hpp>
 #include <numkit/sys/env.hpp>
 
-#include <filesystem>
-#include <vector>
+#include <keel/fs.h>
 
-namespace fs = std::filesystem;
+#include <vector>
 
 namespace numkit::sys {
 
 namespace {
 
 std::string firstLine(const std::string &s) {
-    size_t pos = s.find_first_of("\r\n");
+    keel::usize pos = s.find_first_of("\r\n");
     return (pos == std::string::npos) ? s : s.substr(0, pos);
 }
 
-fs::path userNumkitPrefix() {
+std::string joinSeg(const std::string &a, const std::string &b) {
+    if (a.empty()) return b;
+    if (b.empty()) return a;
+    if (a.back() == '/' || a.back() == '\\') return a + b;
+    return a + "/" + b;
+}
+
+bool isRegularFile(const std::string &p) noexcept {
+    auto st = keel::fs_stat(keel::StringRef(p));
+    return st.is_ok() && st.value().is_file;
+}
+
+std::string userNumkitPrefix() {
     std::string custom = envGet("NUMKIT_PREFIX");
-    if (!custom.empty()) return fs::path(custom);
+    if (!custom.empty()) return custom;
 #ifdef _WIN32
     std::string home = envGet("USERPROFILE");
     if (home.empty()) {
@@ -32,8 +43,8 @@ fs::path userNumkitPrefix() {
 #else
     std::string home = envGet("HOME");
 #endif
-    if (home.empty()) return fs::path(".numkit");
-    return fs::path(home) / ".numkit";
+    if (home.empty()) return ".numkit";
+    return joinSeg(home, ".numkit");
 }
 
 std::string exeName(const char *base) {
@@ -96,19 +107,18 @@ ToolInfo probeCandidate(const std::string &name, const std::string &exePath,
 } // namespace
 
 ToolInfo findCMake() {
-    std::error_code ec;
-    fs::path prefix = userNumkitPrefix();
-    const fs::path portableCandidates[] = {
-        prefix / "toolchain" / "cmake" / "bin" / exeName("cmake"),
-        prefix / "toolchain" / "cmake" / "CMake.app" / "Contents" / "bin" / "cmake",
-        prefix / "bin" / exeName("cmake")
+    std::string prefix = userNumkitPrefix();
+    const std::string portableCandidates[] = {
+        joinSeg(prefix, "toolchain/cmake/bin/" + exeName("cmake")),
+        joinSeg(prefix, "toolchain/cmake/CMake.app/Contents/bin/cmake"),
+        joinSeg(prefix, "bin/" + exeName("cmake"))
     };
     for (const auto &p : portableCandidates) {
-        if (fs::exists(p, ec) && fs::is_regular_file(p, ec)) {
+        if (isRegularFile(p)) {
             ToolInfo info;
             info.found = true;
             info.name = "cmake";
-            info.path = p.string();
+            info.path = p;
             return info;
         }
     }
@@ -140,7 +150,7 @@ ToolInfo findCMake() {
 #endif
 
     for (const char *c : candidates) {
-        if (fs::exists(c, ec) && fs::is_regular_file(c, ec)) {
+        if (isRegularFile(c)) {
             ToolInfo info;
             info.found = true;
             info.name = "cmake";
@@ -153,18 +163,17 @@ ToolInfo findCMake() {
 }
 
 ToolInfo findNinja() {
-    std::error_code ec;
-    fs::path prefix = userNumkitPrefix();
-    const fs::path portableCandidates[] = {
-        prefix / "toolchain" / "ninja" / exeName("ninja"),
-        prefix / "bin" / exeName("ninja")
+    std::string prefix = userNumkitPrefix();
+    const std::string portableCandidates[] = {
+        joinSeg(prefix, "toolchain/ninja/" + exeName("ninja")),
+        joinSeg(prefix, "bin/" + exeName("ninja"))
     };
     for (const auto &p : portableCandidates) {
-        if (fs::exists(p, ec) && fs::is_regular_file(p, ec)) {
+        if (isRegularFile(p)) {
             ToolInfo info;
             info.found = true;
             info.name = "ninja";
-            info.path = p.string();
+            info.path = p;
             return info;
         }
     }
@@ -190,7 +199,7 @@ ToolInfo findNinja() {
 #endif
 
     for (const char *c : candidates) {
-        if (fs::exists(c, ec) && fs::is_regular_file(c, ec)) {
+        if (isRegularFile(c)) {
             ToolInfo info;
             info.found = true;
             info.name = "ninja";
@@ -225,9 +234,8 @@ ToolInfo findGit() {
     };
 #endif
 
-    std::error_code ec;
     for (const char *c : candidates) {
-        if (fs::exists(c, ec) && fs::is_regular_file(c, ec)) {
+        if (isRegularFile(c)) {
             ToolInfo info;
             info.found = true;
             info.name = "git";
@@ -240,15 +248,14 @@ ToolInfo findGit() {
 }
 
 ToolInfo findZig() {
-    std::error_code ec;
-    fs::path prefix = userNumkitPrefix();
-    const fs::path portableCandidates[] = {
-        prefix / "toolchain" / "zig" / exeName("zig"),
-        prefix / "bin" / exeName("zig")
+    std::string prefix = userNumkitPrefix();
+    const std::string portableCandidates[] = {
+        joinSeg(prefix, "toolchain/zig/" + exeName("zig")),
+        joinSeg(prefix, "bin/" + exeName("zig"))
     };
     for (const auto &p : portableCandidates) {
-        if (fs::exists(p, ec) && fs::is_regular_file(p, ec)) {
-            auto info = probeCandidate("zig c++", p.string(), "version", "c++");
+        if (isRegularFile(p)) {
+            auto info = probeCandidate("zig c++", p, "version", "c++");
             if (info.found) return info;
         }
     }
@@ -263,21 +270,18 @@ ToolInfo findZig() {
 
 std::vector<ToolInfo> findAllCxxCompilers() {
     std::vector<ToolInfo> result;
-    std::error_code ec;
 
-    // 1. Check portable / system zig c++ first
     if (auto zig = findZig(); zig.found) {
         result.push_back(std::move(zig));
     }
 
 #ifdef _WIN32
-    // 2. Check MSVC via vswhere or standard VS 2022/2019 paths
     const char *vswhere = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe";
-    if (fs::exists(vswhere, ec)) {
+    if (keel::fs_exists(vswhere)) {
         auto res = runProcess("\"" + std::string(vswhere) + "\" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath");
         if (res.ok()) {
             std::string vsPath = firstLine(res.output);
-            if (!vsPath.empty() && fs::exists(vsPath, ec)) {
+            if (!vsPath.empty() && keel::fs_exists(vsPath)) {
                 ToolInfo msvc;
                 msvc.found = true;
                 msvc.name = "msvc";
@@ -288,13 +292,11 @@ std::vector<ToolInfo> findAllCxxCompilers() {
     }
 #endif
 
-    // 3. Check clang++
     if (isCommandAvailable("clang++")) {
         auto info = probeCandidate("clang++", "clang++");
         if (info.found) result.push_back(std::move(info));
     }
 
-    // 4. Check g++ (GCC / MinGW)
     if (isCommandAvailable("g++")) {
         auto info = probeCandidate("g++", "g++");
         if (info.found) result.push_back(std::move(info));

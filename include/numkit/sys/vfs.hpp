@@ -3,7 +3,8 @@
 // Unified filesystem abstraction for NumKit.
 #pragma once
 
-#include <cstdint>
+#include <keel/core.h>
+
 #include <functional>
 #include <memory>
 #include <optional>
@@ -13,8 +14,6 @@
 
 namespace numkit::sys {
 
-// ── DirEntry / FileStat — types returned by VFS introspection methods ──
-
 struct DirEntry
 {
     std::string name;        // basename only (no path prefix)
@@ -23,10 +22,9 @@ struct DirEntry
 
 struct FileStat
 {
-    int64_t size = 0;        // bytes (0 for directories)
-    int64_t mtime = 0;       // last-modified time, seconds since epoch
-                             // (0 if backend can't supply one)
-    int64_t mtimeNs = 0;     // high-resolution mtime in nanoseconds since epoch
+    keel::i64 size = 0;      // bytes (0 for directories)
+    keel::i64 mtime = 0;     // last-modified time, seconds since epoch
+    keel::i64 mtimeNs = 0;   // high-resolution mtime in nanoseconds since epoch
     enum class Kind { File, Directory, Other };
     Kind kind = Kind::Other;
 };
@@ -40,10 +38,8 @@ public:
     virtual void writeFile(const std::string &path, const std::string &content) = 0;
     virtual bool exists(const std::string &path) = 0;
 
-    // Binary-safe read — returns raw file bytes without UTF-8 reinterpretation
     virtual std::string readFileBytes(const std::string &path) { return readFile(path); }
 
-    // Binary-safe write — verbatim byte container without encoding translation
     virtual void writeFileBytes(const std::string &path, const std::string &bytes)
     {
         writeFile(path, bytes);
@@ -51,7 +47,6 @@ public:
 
     virtual std::string name() const = 0;
 
-    // Directory operations and introspection
     virtual std::vector<DirEntry> listDir(const std::string &/*path*/)
     {
         throw std::runtime_error(name() + ": listDir not supported");
@@ -88,7 +83,7 @@ public:
     }
 };
 
-// ── NativeFS — std::filesystem / std::ifstream / std::ofstream ──
+// ── NativeFS — backed by keel::fs_* ──
 class NativeFS final : public VirtualFS
 {
 public:

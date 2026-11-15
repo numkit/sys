@@ -1,163 +1,141 @@
 // src/vfs.cpp
 //
-// Native filesystem implementation for VirtualFS.
+// Native filesystem implementation for VirtualFS backed by keel::fs_*.
 
 #include <numkit/sys/vfs.hpp>
 
-#include <chrono>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
+#include <keel/arena.h>
+#include <keel/fs.h>
+
+#if !defined(_WIN32)
+#  include <fcntl.h>
+#  include <sys/stat.h>
+#  include <time.h>
+#endif
 
 namespace numkit::sys {
 
-namespace {
-
-std::filesystem::path toFsPath(const std::string &utf8)
-{
-    std::error_code ec;
-    try {
-        auto p = std::filesystem::u8path(utf8);
-        if (std::filesystem::exists(p, ec))
-            return p;
-        std::filesystem::path p2(utf8);
-        if (std::filesystem::exists(p2, ec))
-            return p2;
-        return p;
-    } catch (...) {
-        return std::filesystem::path(utf8);
-    }
-}
-
-std::string toUtf8(const std::filesystem::path &p)
-{
-    try {
-        auto u8 = p.u8string();
-        return std::string(reinterpret_cast<const char *>(u8.data()), u8.size());
-    } catch (...) {
-        return p.string();
-    }
-}
-
-} // namespace
-
 std::string NativeFS::readFile(const std::string &path)
 {
-    std::ifstream f(toFsPath(path), std::ios::binary);
-    if (!f)
+    keel::ArenaTemp scratch = keel::get_scratch();
+    auto res = keel::fs_read_text(keel::StringRef(path), scratch.allocator());
+    if (res.is_err())
         throw std::runtime_error("cannot open '" + path + "' for reading");
-    std::ostringstream os;
-    os << f.rdbuf();
-    return os.str();
+    const keel::String &s = res.value();
+    return std::string(s.data(), s.size());
 }
 
 void NativeFS::writeFile(const std::string &path, const std::string &content)
 {
-    auto fp = toFsPath(path);
-    {
-        std::ofstream f(fp, std::ios::binary);
-        if (!f)
-            throw std::runtime_error("cannot open '" + path + "' for writing");
-        f.write(content.data(), static_cast<std::streamsize>(content.size()));
-        if (!f)
-            throw std::runtime_error("write to '" + path + "' failed");
+    keel::Error err = keel::fs_write_text(keel::StringRef(path), keel::StringRef(content));
+    if (err.is_err())
+        throw std::runtime_error("cannot open '" + path + "' for writing");
+#if !defined(_WIN32)
+    struct timespec ts[2];
+    if (::clock_gettime(CLOCK_REALTIME, &ts[0]) == 0) {
+        ts[1] = ts[0];
+        (void)::utimensat(AT_FDCWD, path.c_str(), ts, 0);
     }
-    std::error_code ec;
-    std::filesystem::last_write_time(fp, std::filesystem::file_time_type::clock::now(), ec);
+#endif
 }
 
 bool NativeFS::exists(const std::string &path)
 {
-    std::error_code ec;
-    return std::filesystem::exists(toFsPath(path), ec) && !ec;
+    return keel::fs_exists(keel::StringRef(path));
 }
 
 std::vector<DirEntry> NativeFS::listDir(const std::string &path)
 {
     std::vector<DirEntry> out;
-    std::error_code ec;
-    std::filesystem::directory_iterator it(toFsPath(path), ec);
-    if (ec)
-        throw std::runtime_error("cannot list directory '" + path + "': " + ec.message());
-    for (const auto &entry : it) {
+    keel::Error err = keel::fs_read_dir(keel::StringRef(path), [&](const keel::DirEntry &de) {
         DirEntry e;
-        e.name = toUtf8(entry.path().filename());
-        std::error_code dec;
-        e.isDirectory = entry.is_directory(dec);
+        e.name = std::string(de.name.data(), de.name.size());
+        e.isDirectory = de.is_dir;
         out.push_back(std::move(e));
+        return true;
+    });
+    if (err.is_err()) {
+        const keel::StringRef msg = keel::error_message(err);
+        throw std::runtime_error("cannot list directory '" + path + "': "
+                                 + std::string(msg.data(), msg.size()));
     }
     return out;
 }
 
 std::optional<FileStat> NativeFS::stat(const std::string &path)
 {
-    std::error_code ec;
-    auto fp = toFsPath(path);
-    auto status = std::filesystem::status(fp, ec);
-    if (ec || !std::filesystem::exists(status))
+    auto res = keel::fs_stat(keel::StringRef(path));
+    if (res.is_err())
         return std::nullopt;
 
-    FileStat fs{};
-    if (std::filesystem::is_directory(status)) {
-        fs.kind = FileStat::Kind::Directory;
-        fs.size = 0;
-    } else if (std::filesystem::is_regular_file(status)) {
-        fs.kind = FileStat::Kind::File;
-        std::error_code sec;
-        auto sz = std::filesystem::file_size(fp, sec);
-        fs.size = sec ? 0 : static_cast<int64_t>(sz);
+    const keel::FileStat &st = res.value();
+    FileStat out{};
+    if (st.is_dir) {
+        out.kind = FileStat::Kind::Directory;
+        out.size = 0;
+    } else if (st.is_file) {
+        out.kind = FileStat::Kind::File;
+        out.size = static_cast<keel::i64>(st.size);
     } else {
-        fs.kind = FileStat::Kind::Other;
+        out.kind = FileStat::Kind::Other;
     }
-
-    std::error_code mec;
-    auto t = std::filesystem::last_write_time(fp, mec);
-    if (!mec) {
-        auto dur = t.time_since_epoch();
-        fs.mtime = std::chrono::duration_cast<std::chrono::seconds>(dur).count();
-        fs.mtimeNs = std::chrono::duration_cast<std::chrono::nanoseconds>(dur).count();
-    }
-    return fs;
+    out.mtimeNs = st.mtime_ns;
+    out.mtime = st.mtime_ns / 1000000000LL;
+    return out;
 }
 
 void NativeFS::mkdir(const std::string &path)
 {
-    std::error_code ec;
-    std::filesystem::create_directories(toFsPath(path), ec);
-    if (ec)
-        throw std::runtime_error("cannot mkdir '" + path + "': " + ec.message());
+    keel::Error err = keel::fs_create_dirs(keel::StringRef(path));
+    if (err.is_err()) {
+        const keel::StringRef msg = keel::error_message(err);
+        throw std::runtime_error("cannot mkdir '" + path + "': "
+                                 + std::string(msg.data(), msg.size()));
+    }
 }
 
 void NativeFS::rmdir(const std::string &path)
 {
-    std::error_code ec;
-    if (!std::filesystem::remove(toFsPath(path), ec) || ec)
+    auto st = keel::fs_stat(keel::StringRef(path));
+    if (st.is_err() || !st.value().is_dir)
+        throw std::runtime_error("cannot rmdir '" + path + "': not a directory or absent");
+    keel::Error err = keel::fs_remove(keel::StringRef(path));
+    if (err.is_err()) {
+        const keel::StringRef msg = keel::error_message(err);
         throw std::runtime_error("cannot rmdir '" + path + "': "
-                                  + (ec ? ec.message() : "not empty or absent"));
+                                 + std::string(msg.data(), msg.size()));
+    }
 }
 
 void NativeFS::unlink(const std::string &path)
 {
-    std::error_code ec;
-    if (!std::filesystem::remove(toFsPath(path), ec) || ec)
+    auto st = keel::fs_stat(keel::StringRef(path));
+    if (st.is_err() || st.value().is_dir)
+        throw std::runtime_error("cannot delete '" + path + "': absent or directory");
+    keel::Error err = keel::fs_remove(keel::StringRef(path));
+    if (err.is_err()) {
+        const keel::StringRef msg = keel::error_message(err);
         throw std::runtime_error("cannot delete '" + path + "': "
-                                  + (ec ? ec.message() : "absent"));
+                                 + std::string(msg.data(), msg.size()));
+    }
 }
 
 std::string NativeFS::tempArea()
 {
-    std::error_code ec;
-    auto p = std::filesystem::temp_directory_path(ec);
-    if (ec) return {};
-    return toUtf8(p);
+    keel::ArenaTemp scratch = keel::get_scratch();
+    auto res = keel::fs_temp_dir(scratch.allocator());
+    if (res.is_err()) return {};
+    const keel::String &s = res.value();
+    return std::string(s.data(), s.size());
 }
 
 std::string NativeFS::cwd()
 {
-    std::error_code ec;
-    auto p = std::filesystem::current_path(ec);
-    if (ec) return {};
-    return toUtf8(p);
+    keel::ArenaTemp scratch = keel::get_scratch();
+    auto res = keel::fs_current_dir(scratch.allocator());
+    if (res.is_err()) return {};
+    const keel::String &s = res.value();
+    return std::string(s.data(), s.size());
 }
 
 } // namespace numkit::sys

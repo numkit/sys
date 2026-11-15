@@ -5,15 +5,14 @@
 
 #include <numkit/value/value.hpp>
 #include <numkit/value/object.hpp>
-#include <numkit/value/span.hpp>
 #include <numkit/value/error.hpp>
 #include <numkit/sys/process.hpp>
 #include <numkit/sys/fs_context.hpp>
 
-#include <cstddef>
-#include <cstdint>
+#include <keel/memory.h>
+#include <keel/ref.h>
+
 #include <functional>
-#include <memory_resource>
 #include <string>
 #include <vector>
 
@@ -51,9 +50,9 @@ class Environment;
 struct CallContext;
 
 // Signature of external functions registered into the engine
-using ExternalFunc = std::function<void(Span<const Value> args,
-                                        size_t nargout,
-                                        Span<Value> outs,
+using ExternalFunc = std::function<void(keel::ArrayRef<Value> args,
+                                        keel::usize nargout,
+                                        keel::MutArrayRef<Value> outs,
                                         CallContext &ctx)>;
 
 // PluginContext: host interface passed to numkit_plugin_init.
@@ -61,18 +60,18 @@ using ExternalFunc = std::function<void(Span<const Value> args,
 class PluginContext {
 public:
     virtual ~PluginContext() = default;
-    virtual std::pmr::memory_resource *resource() const noexcept = 0;
+    virtual keel::Allocator *allocator() const noexcept = 0;
     virtual void registerFunction(const std::string &ns, const std::string &name, ExternalFunc func) = 0;
     virtual void registerFunction(const std::string &name, ExternalFunc func) = 0;
-    virtual Value callFunctionHandle(const Value &handle, Span<const Value> args, Environment *env = nullptr) {
+    virtual Value callFunctionHandle(const Value &handle, keel::ArrayRef<Value> args, Environment *env = nullptr) {
         (void)handle; (void)args; (void)env;
         return Value();
     }
-    virtual std::vector<Value> callFunctionHandleMulti(const Value &handle, Span<const Value> args, size_t nargout, Environment *env = nullptr) {
+    virtual std::vector<Value> callFunctionHandleMulti(const Value &handle, keel::ArrayRef<Value> args, keel::usize nargout, Environment *env = nullptr) {
         (void)handle; (void)args; (void)nargout; (void)env;
         return {};
     }
-    virtual uint32_t abiVersion() const noexcept { return NUMKIT_PLUGIN_ABI_VERSION; }
+    virtual keel::u32 abiVersion() const noexcept { return NUMKIT_PLUGIN_ABI_VERSION; }
 
     virtual sys::ProcessResult runProcess(const std::string &command) {
         return sys::runProcess(command);
@@ -91,7 +90,7 @@ public:
         (void)name;
         return nullptr;
     }
-    virtual void assignToCaller(int n, const std::string &name, Value val) {
+    virtual void assignToCaller(keel::i32 n, const std::string &name, Value val) {
         (void)n; (void)name; (void)val;
     }
 };

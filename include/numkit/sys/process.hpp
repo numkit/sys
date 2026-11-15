@@ -3,12 +3,14 @@
 // Cross-platform process execution and presence detection.
 #pragma once
 
+#include <keel/core.h>
+
 #include <string>
 
 namespace numkit::sys {
 
 struct ProcessResult {
-    int exitCode = -1;
+    keel::i32 exitCode = -1;
     std::string output;
     bool ok() const noexcept { return exitCode == 0; }
 };
