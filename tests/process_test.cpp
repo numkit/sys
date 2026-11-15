@@ -26,7 +26,7 @@ TEST(ProcessTest, RunsCommandAndCapturesOutput)
 
     EXPECT_TRUE(res.ok());
     EXPECT_EQ(res.exitCode, 0);
-    EXPECT_NE(res.output.find("hello_numkit_process"), std::string::npos);
+    EXPECT_TRUE(res.output.contains("hello_numkit_process"));
 }
 
 TEST(ProcessTest, CapturesFailureExitCode)

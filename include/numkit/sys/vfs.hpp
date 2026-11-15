@@ -3,20 +3,20 @@
 // Unified filesystem abstraction for NumKit.
 #pragma once
 
+#include <keel/array.h>
 #include <keel/core.h>
+#include <keel/format.h>
+#include <keel/function.h>
+#include <keel/optional.h>
+#include <keel/string.h>
 
-#include <functional>
-#include <memory>
-#include <optional>
 #include <stdexcept>
-#include <string>
-#include <vector>
 
 namespace numkit::sys {
 
 struct DirEntry
 {
-    std::string name;        // basename only (no path prefix)
+    keel::String name;       // basename only (no path prefix)
     bool isDirectory = false;
 };
 
@@ -34,50 +34,50 @@ class VirtualFS
 public:
     virtual ~VirtualFS() = default;
 
-    virtual std::string readFile(const std::string &path) = 0;
-    virtual void writeFile(const std::string &path, const std::string &content) = 0;
-    virtual bool exists(const std::string &path) = 0;
+    virtual keel::String readFile(keel::StringRef path) = 0;
+    virtual void writeFile(keel::StringRef path, keel::StringRef content) = 0;
+    virtual bool exists(keel::StringRef path) = 0;
 
-    virtual std::string readFileBytes(const std::string &path) { return readFile(path); }
+    virtual keel::String readFileBytes(keel::StringRef path) { return readFile(path); }
 
-    virtual void writeFileBytes(const std::string &path, const std::string &bytes)
+    virtual void writeFileBytes(keel::StringRef path, keel::StringRef bytes)
     {
         writeFile(path, bytes);
     }
 
-    virtual std::string name() const = 0;
+    virtual keel::String name() const = 0;
 
-    virtual std::vector<DirEntry> listDir(const std::string &/*path*/)
+    virtual keel::Array<DirEntry> listDir(keel::StringRef /*path*/)
     {
-        throw std::runtime_error(name() + ": listDir not supported");
+        throw std::runtime_error(keel::format("{}: listDir not supported", name()).c_str());
     }
 
-    virtual std::optional<FileStat> stat(const std::string &/*path*/)
+    virtual keel::Optional<FileStat> stat(keel::StringRef /*path*/)
     {
-        return std::nullopt;
+        return keel::kNullOpt;
     }
 
-    virtual void mkdir(const std::string &/*path*/)
+    virtual void mkdir(keel::StringRef /*path*/)
     {
-        throw std::runtime_error(name() + ": mkdir not supported");
+        throw std::runtime_error(keel::format("{}: mkdir not supported", name()).c_str());
     }
 
-    virtual void rmdir(const std::string &/*path*/)
+    virtual void rmdir(keel::StringRef /*path*/)
     {
-        throw std::runtime_error(name() + ": rmdir not supported");
+        throw std::runtime_error(keel::format("{}: rmdir not supported", name()).c_str());
     }
 
-    virtual void unlink(const std::string &/*path*/)
+    virtual void unlink(keel::StringRef /*path*/)
     {
-        throw std::runtime_error(name() + ": unlink not supported");
+        throw std::runtime_error(keel::format("{}: unlink not supported", name()).c_str());
     }
 
-    virtual std::string tempArea()
+    virtual keel::String tempArea()
     {
         return {};
     }
 
-    virtual std::string cwd()
+    virtual keel::String cwd()
     {
         return {};
     }
@@ -87,115 +87,118 @@ public:
 class NativeFS final : public VirtualFS
 {
 public:
-    std::string readFile(const std::string &path) override;
-    void writeFile(const std::string &path, const std::string &content) override;
-    bool exists(const std::string &path) override;
-    std::string name() const override { return "native"; }
+    keel::String readFile(keel::StringRef path) override;
+    void writeFile(keel::StringRef path, keel::StringRef content) override;
+    bool exists(keel::StringRef path) override;
+    keel::String name() const override { return keel::String::from("native"); }
 
-    std::vector<DirEntry> listDir(const std::string &path) override;
-    std::optional<FileStat> stat(const std::string &path) override;
-    void mkdir(const std::string &path) override;
-    void rmdir(const std::string &path) override;
-    void unlink(const std::string &path) override;
-    std::string tempArea() override;
-    std::string cwd() override;
+    keel::Array<DirEntry> listDir(keel::StringRef path) override;
+    keel::Optional<FileStat> stat(keel::StringRef path) override;
+    void mkdir(keel::StringRef path) override;
+    void rmdir(keel::StringRef path) override;
+    void unlink(keel::StringRef path) override;
+    keel::String tempArea() override;
+    keel::String cwd() override;
 };
 
-// ── CallbackFS — delegates to std::function hooks (WASM / browser bridge) ──
+// ── CallbackFS — delegates to keel::Function hooks (WASM / browser bridge) ──
 class CallbackFS final : public VirtualFS
 {
 public:
-    using ReadFunc = std::function<std::string(const std::string &)>;
-    using WriteFunc = std::function<void(const std::string &, const std::string &)>;
-    using ExistsFunc = std::function<bool(const std::string &)>;
-    using ReadBytesFunc = std::function<std::string(const std::string &)>;
-    using WriteBytesFunc = std::function<void(const std::string &, const std::string &)>;
+    using ReadFunc = keel::Function<keel::String(keel::StringRef)>;
+    using WriteFunc = keel::Function<void(keel::StringRef, keel::StringRef)>;
+    using ExistsFunc = keel::Function<bool(keel::StringRef)>;
+    using ReadBytesFunc = keel::Function<keel::String(keel::StringRef)>;
+    using WriteBytesFunc = keel::Function<void(keel::StringRef, keel::StringRef)>;
 
-    using ListDirFunc = std::function<std::vector<DirEntry>(const std::string &)>;
-    using StatFunc = std::function<std::optional<FileStat>(const std::string &)>;
-    using MkdirFunc = std::function<void(const std::string &)>;
-    using RmdirFunc = std::function<void(const std::string &)>;
-    using UnlinkFunc = std::function<void(const std::string &)>;
-    using TempAreaFunc = std::function<std::string()>;
-    using CwdFunc = std::function<std::string()>;
+    using ListDirFunc = keel::Function<keel::Array<DirEntry>(keel::StringRef)>;
+    using StatFunc = keel::Function<keel::Optional<FileStat>(keel::StringRef)>;
+    using MkdirFunc = keel::Function<void(keel::StringRef)>;
+    using RmdirFunc = keel::Function<void(keel::StringRef)>;
+    using UnlinkFunc = keel::Function<void(keel::StringRef)>;
+    using TempAreaFunc = keel::Function<keel::String()>;
+    using CwdFunc = keel::Function<keel::String()>;
 
-    CallbackFS(std::string n, ReadFunc r, WriteFunc w, ExistsFunc e)
-        : name_(std::move(n)), read_(std::move(r)), write_(std::move(w)), exists_(std::move(e))
+    CallbackFS(keel::StringRef n, ReadFunc r, WriteFunc w, ExistsFunc e)
+        : name_(n)
+        , read_(keel::move(r))
+        , write_(keel::move(w))
+        , exists_(keel::move(e))
     {}
 
-    std::string readFile(const std::string &path) override
+    keel::String readFile(keel::StringRef path) override
     {
         if (!read_)
-            throw std::runtime_error(name_ + ": read hook not installed");
+            throw std::runtime_error(keel::format("{}: read hook not installed", name_).c_str());
         return read_(path);
     }
-    void writeFile(const std::string &path, const std::string &content) override
+    void writeFile(keel::StringRef path, keel::StringRef content) override
     {
         if (!write_)
-            throw std::runtime_error(name_ + ": write hook not installed");
+            throw std::runtime_error(keel::format("{}: write hook not installed", name_).c_str());
         write_(path, content);
     }
-    bool exists(const std::string &path) override { return exists_ ? exists_(path) : false; }
-    std::string name() const override { return name_; }
+    bool exists(keel::StringRef path) override { return exists_ ? exists_(path) : false; }
+    keel::String name() const override { return name_.clone(); }
 
-    void setReadBytes(ReadBytesFunc f) { readBytes_ = std::move(f); }
-    std::string readFileBytes(const std::string &path) override
+    void setReadBytes(ReadBytesFunc f) { readBytes_ = keel::move(f); }
+    keel::String readFileBytes(keel::StringRef path) override
     {
         if (readBytes_) return readBytes_(path);
         return readFile(path);
     }
 
-    void setWriteBytes(WriteBytesFunc f) { writeBytes_ = std::move(f); }
-    void writeFileBytes(const std::string &path, const std::string &bytes) override
+    void setWriteBytes(WriteBytesFunc f) { writeBytes_ = keel::move(f); }
+    void writeFileBytes(keel::StringRef path, keel::StringRef bytes) override
     {
         if (writeBytes_) { writeBytes_(path, bytes); return; }
         writeFile(path, bytes);
     }
 
-    void setListDir(ListDirFunc f) { listDir_ = std::move(f); }
-    void setStat(StatFunc f) { stat_ = std::move(f); }
-    void setMkdir(MkdirFunc f) { mkdir_ = std::move(f); }
-    void setRmdir(RmdirFunc f) { rmdir_ = std::move(f); }
-    void setUnlink(UnlinkFunc f) { unlink_ = std::move(f); }
-    void setTempArea(TempAreaFunc f) { tempArea_ = std::move(f); }
-    void setCwd(CwdFunc f) { cwd_ = std::move(f); }
+    void setListDir(ListDirFunc f) { listDir_ = keel::move(f); }
+    void setStat(StatFunc f) { stat_ = keel::move(f); }
+    void setMkdir(MkdirFunc f) { mkdir_ = keel::move(f); }
+    void setRmdir(RmdirFunc f) { rmdir_ = keel::move(f); }
+    void setUnlink(UnlinkFunc f) { unlink_ = keel::move(f); }
+    void setTempArea(TempAreaFunc f) { tempArea_ = keel::move(f); }
+    void setCwd(CwdFunc f) { cwd_ = keel::move(f); }
 
-    std::vector<DirEntry> listDir(const std::string &path) override
+    keel::Array<DirEntry> listDir(keel::StringRef path) override
     {
         if (listDir_) return listDir_(path);
         return VirtualFS::listDir(path);
     }
-    std::optional<FileStat> stat(const std::string &path) override
+    keel::Optional<FileStat> stat(keel::StringRef path) override
     {
         if (stat_) return stat_(path);
-        return std::nullopt;
+        return keel::kNullOpt;
     }
-    void mkdir(const std::string &path) override
+    void mkdir(keel::StringRef path) override
     {
         if (mkdir_) { mkdir_(path); return; }
         VirtualFS::mkdir(path);
     }
-    void rmdir(const std::string &path) override
+    void rmdir(keel::StringRef path) override
     {
         if (rmdir_) { rmdir_(path); return; }
         VirtualFS::rmdir(path);
     }
-    void unlink(const std::string &path) override
+    void unlink(keel::StringRef path) override
     {
         if (unlink_) { unlink_(path); return; }
         VirtualFS::unlink(path);
     }
-    std::string tempArea() override
+    keel::String tempArea() override
     {
-        return tempArea_ ? tempArea_() : std::string{};
+        return tempArea_ ? tempArea_() : keel::String{};
     }
-    std::string cwd() override
+    keel::String cwd() override
     {
-        return cwd_ ? cwd_() : std::string{};
+        return cwd_ ? cwd_() : keel::String{};
     }
 
 private:
-    std::string name_;
+    keel::String name_;
     ReadFunc read_;
     WriteFunc write_;
     ExistsFunc exists_;

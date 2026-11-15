@@ -7,70 +7,75 @@
 #include <numkit/sys/process.hpp>
 #include <numkit/sys/env.hpp>
 
+#include <keel/format.h>
 #include <keel/fs.h>
-
-#include <vector>
+#include <keel/string.h>
 
 namespace numkit::sys {
 
 namespace {
 
-std::string firstLine(const std::string &s) {
-    keel::usize pos = s.find_first_of("\r\n");
-    return (pos == std::string::npos) ? s : s.substr(0, pos);
+keel::String firstLine(keel::StringRef s) {
+    for (keel::usize i = 0; i < s.size(); ++i) {
+        if (s[i] == '\r' || s[i] == '\n')
+            return keel::String(s.substr(0, i));
+    }
+    return keel::String(s);
 }
 
-std::string joinSeg(const std::string &a, const std::string &b) {
-    if (a.empty()) return b;
-    if (b.empty()) return a;
-    if (a.back() == '/' || a.back() == '\\') return a + b;
-    return a + "/" + b;
+keel::String joinSeg(keel::StringRef a, keel::StringRef b) {
+    if (a.empty()) return keel::String(b);
+    if (b.empty()) return keel::String(a);
+    if (a.back() == '/' || a.back() == '\\') return keel::format("{}{}", a, b);
+    return keel::format("{}/{}", a, b);
 }
 
-bool isRegularFile(const std::string &p) noexcept {
-    auto st = keel::fs_stat(keel::StringRef(p));
+bool isRegularFile(keel::StringRef p) noexcept {
+    auto st = keel::fs_stat(p);
     return st.is_ok() && st.value().is_file;
 }
 
-std::string userNumkitPrefix() {
-    std::string custom = envGet("NUMKIT_PREFIX");
+keel::String userNumkitPrefix() {
+    keel::String custom = envGet("NUMKIT_PREFIX");
     if (!custom.empty()) return custom;
 #ifdef _WIN32
-    std::string home = envGet("USERPROFILE");
+    keel::String home = envGet("USERPROFILE");
     if (home.empty()) {
-        home = envGet("HOMEDRIVE") + envGet("HOMEPATH");
+        keel::String hd = envGet("HOMEDRIVE");
+        keel::String hp = envGet("HOMEPATH");
+        home = keel::format("{}{}", hd, hp);
     }
 #else
-    std::string home = envGet("HOME");
+    keel::String home = envGet("HOME");
 #endif
-    if (home.empty()) return ".numkit";
+    if (home.empty()) return keel::String::from(".numkit");
     return joinSeg(home, ".numkit");
 }
 
-std::string exeName(const char *base) {
+keel::String exeName(keel::StringRef base) {
 #ifdef _WIN32
-    return std::string(base) + ".exe";
+    return keel::format("{}.exe", base);
 #else
-    return std::string(base);
+    return keel::String(base);
 #endif
 }
 
-std::string quoteCmdPath(const std::string &p) {
+keel::String quoteCmdPath(keel::StringRef p) {
 #ifdef _WIN32
-    std::string out = "\"";
+    keel::String out("\"");
     for (char ch : p) {
         if (ch == '"')
-            out += "\\\"";
+            out.append("\\\"");
         else
             out.push_back(ch);
     }
     out.push_back('"');
     return out;
 #else
-    std::string out = "'";
+    keel::String out("'");
     for (char ch : p) {
         if (ch == '\'')
-            out += "'\\''";
+            out.append("'\\''");
         else
             out.push_back(ch);
     }
@@ -79,22 +84,29 @@ std::string quoteCmdPath(const std::string &p) {
 #endif
 }
 
-ToolInfo probeCandidate(const std::string &name, const std::string &exePath,
-                        const std::string &versionArg = "--version",
-                        const std::string &extraArgs = "") {
+ToolInfo probeCandidate(keel::StringRef name, keel::StringRef exePath,
+                        keel::StringRef versionArg = "--version",
+                        keel::StringRef extraArgs = "") {
     ToolInfo info;
-    info.name = name;
-    info.path = exePath;
-    info.extraArgs = extraArgs;
+    info.name = keel::String(name);
+    info.path = keel::String(exePath);
+    info.extraArgs = keel::String(extraArgs);
 
-    for (unsigned char ch : exePath) {
+    for (keel::usize i = 0; i < exePath.size(); ++i) {
+        const auto ch = static_cast<unsigned char>(exePath[i]);
         if (ch < 0x20 || ch == 0x7F)
             return info;
     }
 
-    std::string cmd = quoteCmdPath(exePath);
-    if (!extraArgs.empty()) cmd += " " + extraArgs;
-    if (!versionArg.empty()) cmd += " " + versionArg;
+    keel::String cmd = quoteCmdPath(exePath);
+    if (!extraArgs.empty()) {
+        cmd.push_back(' ');
+        cmd.append(extraArgs);
+    }
+    if (!versionArg.empty()) {
+        cmd.push_back(' ');
+        cmd.append(versionArg);
+    }
 
     auto res = runProcess(cmd);
     if (res.ok()) {
@@ -107,18 +119,19 @@ ToolInfo probeCandidate(const std::string &name, const std::string &exePath,
 } // namespace
 
 ToolInfo findCMake() {
-    std::string prefix = userNumkitPrefix();
-    const std::string portableCandidates[] = {
-        joinSeg(prefix, "toolchain/cmake/bin/" + exeName("cmake")),
+    keel::String prefix = userNumkitPrefix();
+    keel::String cmakeExe = exeName("cmake");
+    const keel::String portableCandidates[] = {
+        joinSeg(prefix, keel::format("toolchain/cmake/bin/{}", cmakeExe)),
         joinSeg(prefix, "toolchain/cmake/CMake.app/Contents/bin/cmake"),
-        joinSeg(prefix, "bin/" + exeName("cmake"))
+        joinSeg(prefix, keel::format("bin/{}", cmakeExe))
     };
     for (const auto &p : portableCandidates) {
         if (isRegularFile(p)) {
             ToolInfo info;
             info.found = true;
-            info.name = "cmake";
-            info.path = p;
+            info.name = keel::String::from("cmake");
+            info.path = p.clone();
             return info;
         }
     }
@@ -153,8 +166,8 @@ ToolInfo findCMake() {
         if (isRegularFile(c)) {
             ToolInfo info;
             info.found = true;
-            info.name = "cmake";
-            info.path = c;
+            info.name = keel::String::from("cmake");
+            info.path = keel::String::from(c);
             return info;
         }
     }
@@ -163,17 +176,18 @@ ToolInfo findCMake() {
 }
 
 ToolInfo findNinja() {
-    std::string prefix = userNumkitPrefix();
-    const std::string portableCandidates[] = {
-        joinSeg(prefix, "toolchain/ninja/" + exeName("ninja")),
-        joinSeg(prefix, "bin/" + exeName("ninja"))
+    keel::String prefix = userNumkitPrefix();
+    keel::String ninjaExe = exeName("ninja");
+    const keel::String portableCandidates[] = {
+        joinSeg(prefix, keel::format("toolchain/ninja/{}", ninjaExe)),
+        joinSeg(prefix, keel::format("bin/{}", ninjaExe))
     };
     for (const auto &p : portableCandidates) {
         if (isRegularFile(p)) {
             ToolInfo info;
             info.found = true;
-            info.name = "ninja";
-            info.path = p;
+            info.name = keel::String::from("ninja");
+            info.path = p.clone();
             return info;
         }
     }
@@ -202,8 +216,8 @@ ToolInfo findNinja() {
         if (isRegularFile(c)) {
             ToolInfo info;
             info.found = true;
-            info.name = "ninja";
-            info.path = c;
+            info.name = keel::String::from("ninja");
+            info.path = keel::String::from(c);
             return info;
         }
     }
@@ -215,8 +229,8 @@ ToolInfo findGit() {
     if (isCommandAvailable("git")) {
         ToolInfo info;
         info.found = true;
-        info.name = "git";
-        info.path = "git";
+        info.name = keel::String::from("git");
+        info.path = keel::String::from("git");
         return info;
     }
 
@@ -238,8 +252,8 @@ ToolInfo findGit() {
         if (isRegularFile(c)) {
             ToolInfo info;
             info.found = true;
-            info.name = "git";
-            info.path = c;
+            info.name = keel::String::from("git");
+            info.path = keel::String::from(c);
             return info;
         }
     }
@@ -248,10 +262,11 @@ ToolInfo findGit() {
 }
 
 ToolInfo findZig() {
-    std::string prefix = userNumkitPrefix();
-    const std::string portableCandidates[] = {
-        joinSeg(prefix, "toolchain/zig/" + exeName("zig")),
-        joinSeg(prefix, "bin/" + exeName("zig"))
+    keel::String prefix = userNumkitPrefix();
+    keel::String zigExe = exeName("zig");
+    const keel::String portableCandidates[] = {
+        joinSeg(prefix, keel::format("toolchain/zig/{}", zigExe)),
+        joinSeg(prefix, keel::format("bin/{}", zigExe))
     };
     for (const auto &p : portableCandidates) {
         if (isRegularFile(p)) {
@@ -268,25 +283,25 @@ ToolInfo findZig() {
     return {};
 }
 
-std::vector<ToolInfo> findAllCxxCompilers() {
-    std::vector<ToolInfo> result;
+keel::Array<ToolInfo> findAllCxxCompilers() {
+    keel::Array<ToolInfo> result;
 
     if (auto zig = findZig(); zig.found) {
-        result.push_back(std::move(zig));
+        result.push_back(keel::move(zig));
     }
 
 #ifdef _WIN32
     const char *vswhere = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe";
     if (keel::fs_exists(vswhere)) {
-        auto res = runProcess("\"" + std::string(vswhere) + "\" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath");
+        auto res = runProcess(keel::format("\"{}\" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath", vswhere));
         if (res.ok()) {
-            std::string vsPath = firstLine(res.output);
+            keel::String vsPath = firstLine(res.output);
             if (!vsPath.empty() && keel::fs_exists(vsPath)) {
                 ToolInfo msvc;
                 msvc.found = true;
-                msvc.name = "msvc";
-                msvc.path = vsPath;
-                result.push_back(std::move(msvc));
+                msvc.name = keel::String::from("msvc");
+                msvc.path = keel::move(vsPath);
+                result.push_back(keel::move(msvc));
             }
         }
     }
@@ -294,12 +309,12 @@ std::vector<ToolInfo> findAllCxxCompilers() {
 
     if (isCommandAvailable("clang++")) {
         auto info = probeCandidate("clang++", "clang++");
-        if (info.found) result.push_back(std::move(info));
+        if (info.found) result.push_back(keel::move(info));
     }
 
     if (isCommandAvailable("g++")) {
         auto info = probeCandidate("g++", "g++");
-        if (info.found) result.push_back(std::move(info));
+        if (info.found) result.push_back(keel::move(info));
     }
 
     return result;
@@ -307,7 +322,7 @@ std::vector<ToolInfo> findAllCxxCompilers() {
 
 ToolInfo findCxxCompiler() {
     auto all = findAllCxxCompilers();
-    if (!all.empty()) return all.front();
+    if (!all.empty()) return keel::move(all[0]);
     return {};
 }
 

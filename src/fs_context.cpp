@@ -4,44 +4,46 @@
 
 #include <numkit/sys/fs_context.hpp>
 
-#include <algorithm>
+#include <keel/algo.h>
+#include <keel/format.h>
+
 #include <stdexcept>
-#include <utility>
 
 namespace numkit::sys {
 
 // ── Registry ──────────────────────────────────────────────────
 
-void FsContext::registerVirtualFS(std::unique_ptr<VirtualFS> fs)
+void FsContext::registerVirtualFS(keel::UniquePtr<VirtualFS> fs)
 {
     if (!fs)
         return;
-    auto n = fs->name();
-    virtualFs_[n] = std::move(fs);
+    keel::String n = fs->name();
+    virtualFs_.put(keel::move(n), keel::move(fs));
 }
 
-VirtualFS *FsContext::findVirtualFS(const std::string &name) const
+VirtualFS *FsContext::findVirtualFS(keel::StringRef name) const
 {
-    auto it = virtualFs_.find(name);
-    return (it != virtualFs_.end()) ? it->second.get() : nullptr;
+    const auto *it = virtualFs_.get(name);
+    return it ? it->get() : nullptr;
 }
 
 // ── Script-origin stack ───────────────────────────────────────
 
-void FsContext::pushScriptOrigin(const std::string &fsName)
+void FsContext::pushScriptOrigin(keel::StringRef fsName)
 {
-    scriptOriginStack_.push_back({fsName, std::string{}, std::string{}});
+    scriptOriginStack_.push_back({keel::String(fsName), keel::String{}, keel::String{}});
 }
 
-void FsContext::pushScriptOrigin(const std::string &fsName, const std::string &scriptDir)
+void FsContext::pushScriptOrigin(keel::StringRef fsName, keel::StringRef scriptDir)
 {
-    scriptOriginStack_.push_back({fsName, scriptDir, std::string{}});
+    scriptOriginStack_.push_back({keel::String(fsName), keel::String(scriptDir), keel::String{}});
 }
 
-void FsContext::pushScriptOrigin(const std::string &fsName, const std::string &scriptDir,
-                                 const std::string &scriptFile)
+void FsContext::pushScriptOrigin(keel::StringRef fsName, keel::StringRef scriptDir,
+                                 keel::StringRef scriptFile)
 {
-    scriptOriginStack_.push_back({fsName, scriptDir, scriptFile});
+    scriptOriginStack_.push_back(
+        {keel::String(fsName), keel::String(scriptDir), keel::String(scriptFile)});
 }
 
 void FsContext::popScriptOrigin()
@@ -50,17 +52,17 @@ void FsContext::popScriptOrigin()
         scriptOriginStack_.pop_back();
 }
 
-const std::string *FsContext::currentScriptOrigin() const
+const keel::String *FsContext::currentScriptOrigin() const
 {
     return scriptOriginStack_.empty() ? nullptr : &scriptOriginStack_.back().fsName;
 }
 
-const std::string *FsContext::currentScriptDir() const
+const keel::String *FsContext::currentScriptDir() const
 {
     return scriptOriginStack_.empty() ? nullptr : &scriptOriginStack_.back().scriptDir;
 }
 
-const std::string *FsContext::currentScriptFile() const
+const keel::String *FsContext::currentScriptFile() const
 {
     return scriptOriginStack_.empty() ? nullptr : &scriptOriginStack_.back().scriptFile;
 }
@@ -69,105 +71,115 @@ const std::string *FsContext::currentScriptFile() const
 
 namespace {
 
-std::pair<std::string, std::string> splitFsScheme(const std::string &path,
-                                                  const std::unordered_map<std::string, std::unique_ptr<VirtualFS>> &fsMap)
+struct FsSchemeSplit
 {
-    auto colon = path.find(':');
-    if (colon == std::string::npos || colon < 2)
-        return {"", path};
-    std::string scheme = path.substr(0, colon);
-    if (fsMap.find(scheme) == fsMap.end())
-        return {"", path};
+    keel::StringRef scheme;
+    keel::StringRef rest;
+};
+
+FsSchemeSplit splitFsScheme(
+    keel::StringRef path,
+    const keel::HashMap<keel::String, keel::UniquePtr<VirtualFS>> &fsMap)
+{
+    keel::usize colon = path.find(':');
+    if (colon == keel::kInvalidIndex || colon < 2)
+        return {keel::StringRef{}, path};
+    keel::StringRef scheme = path.substr(0, colon);
+    if (!fsMap.contains(scheme))
+        return {keel::StringRef{}, path};
     return {scheme, path.substr(colon + 1)};
 }
 
-bool isAbsolutePath(const std::string &p)
+bool isAbsolutePath(keel::StringRef p) noexcept
 {
     if (p.empty())
         return false;
     if (p[0] == '/' || p[0] == '\\')
         return true;
-    if (p.size() >= 2 && p[1] == ':' && ((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')))
+    if (p.size() >= 2 && p[1] == ':' &&
+        ((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')))
         return true;
     return false;
 }
 
-std::string joinPath(const std::string &base, const std::string &rel)
+keel::String joinPath(keel::StringRef base, keel::StringRef rel)
 {
     if (base.empty())
-        return rel;
+        return keel::String(rel);
     if (rel.empty())
-        return base;
+        return keel::String(base);
     char last = base.back();
     if (last == '/' || last == '\\')
-        return base + rel;
-    return base + "/" + rel;
+        return keel::format("{}{}", base, rel);
+    return keel::format("{}/{}", base, rel);
 }
 
 } // namespace
 
-FsContext::ResolvedPath FsContext::resolvePath(const std::string &userPath) const
+FsContext::ResolvedPath FsContext::resolvePath(keel::StringRef userPath) const
 {
     // 1. Explicit scheme in the path wins.
-    auto [scheme, rest] = splitFsScheme(userPath, virtualFs_);
-    if (!scheme.empty()) {
-        auto *fs = findVirtualFS(scheme);
+    auto split = splitFsScheme(userPath, virtualFs_);
+    if (!split.scheme.empty()) {
+        auto *fs = findVirtualFS(split.scheme);
         if (!fs)
-            throw std::runtime_error("unknown filesystem '" + scheme + "' in path");
-        return {fs, rest};
+            throw std::runtime_error(
+                keel::format("unknown filesystem '{}' in path", split.scheme).c_str());
+        return {fs, keel::String(split.rest)};
     }
 
     // 2. NUMKIT_FS env var selects the backend.
-    std::string fsName = envGetPrefixed("FS");
+    keel::String fsName = envGetPrefixed("FS");
     if (fsName == "auto")
         fsName.clear();
 
     // 3. Fall back to script origin, then to "native".
     if (fsName.empty()) {
         if (auto *o = currentScriptOrigin())
-            fsName = *o;
+            fsName = o->clone();
     }
     if (fsName.empty())
-        fsName = "native";
+        fsName = keel::String::from("native");
 
     VirtualFS *fs = findVirtualFS(fsName);
     if (!fs)
-        throw std::runtime_error("filesystem '" + fsName + "' is not available");
+        throw std::runtime_error(
+            keel::format("filesystem '{}' is not available", fsName).c_str());
 
-    std::string path = userPath;
+    keel::String path(userPath);
     if (!isAbsolutePath(path)) {
-        std::string cwdVal = !cwd_.empty() ? cwd_ : envGetPrefixed("CWD");
+        keel::String cwdVal = !cwd_.empty() ? cwd_.clone() : envGetPrefixed("CWD");
         if (cwdVal.empty()) {
             if (auto *sdir = currentScriptDir()) {
-                if (!sdir->empty()) cwdVal = *sdir;
+                if (!sdir->empty()) cwdVal = sdir->clone();
             }
         }
         if (!cwdVal.empty())
             path = joinPath(cwdVal, path);
     }
 
-    return {fs, path};
+    return {fs, keel::move(path)};
 }
 
-// ── MATLAB-style file descriptor table ─────────────────────────
+// ── Engine file descriptor table ──────────────────────────────
 
-int FsContext::openFile(const std::string &userPath, const std::string &modeRaw)
+keel::i32 FsContext::openFile(keel::StringRef userPath, keel::StringRef modeRaw)
 {
     lastFopenError_.clear();
 
-    std::string mode = modeRaw;
-    while (!mode.empty() && (mode.back() == 't' || mode.back() == 'b'))
-        mode.pop_back();
+    keel::StringRef modeView = modeRaw;
+    while (!modeView.empty() && (modeView.back() == 't' || modeView.back() == 'b'))
+        modeView = modeView.substr(0, modeView.size() - 1);
 
     bool canRead = false, canWrite = false, appendOnly = false, truncate = false, seedBuffer = false;
-    if      (mode == "r")  { canRead = true;  seedBuffer = true; }
-    else if (mode == "w")  { canWrite = true; truncate = true; }
-    else if (mode == "a")  { canWrite = true; appendOnly = true; seedBuffer = true; }
-    else if (mode == "r+") { canRead = true;  canWrite = true; seedBuffer = true; }
-    else if (mode == "w+") { canRead = true;  canWrite = true; truncate = true; }
-    else if (mode == "a+") { canRead = true;  canWrite = true; appendOnly = true; seedBuffer = true; }
+    if      (modeView == "r")  { canRead = true;  seedBuffer = true; }
+    else if (modeView == "w")  { canWrite = true; truncate = true; }
+    else if (modeView == "a")  { canWrite = true; appendOnly = true; seedBuffer = true; }
+    else if (modeView == "r+") { canRead = true;  canWrite = true; seedBuffer = true; }
+    else if (modeView == "w+") { canRead = true;  canWrite = true; truncate = true; }
+    else if (modeView == "a+") { canRead = true;  canWrite = true; appendOnly = true; seedBuffer = true; }
     else {
-        lastFopenError_ = "Invalid permission specified";
+        lastFopenError_ = keel::String::from("Invalid permission specified");
         return -1;
     }
 
@@ -175,33 +187,33 @@ int FsContext::openFile(const std::string &userPath, const std::string &modeRaw)
     try {
         r = resolvePath(userPath);
     } catch (const std::exception &e) {
-        lastFopenError_ = e.what();
+        lastFopenError_ = keel::String(e.what());
         return -1;
     }
 
     OpenFile f;
-    f.path = r.path;
-    f.mode = mode;
+    f.path = r.path.clone();
+    f.mode = keel::String(modeView);
     f.fs = r.fs;
     f.forRead = canRead;
     f.forWrite = canWrite;
     f.appendOnly = appendOnly;
 
     if (seedBuffer) {
-        const bool requireExisting = (mode == "r" || mode == "r+");
+        const bool requireExisting = (modeView == "r" || modeView == "r+");
         try {
             if (r.fs->exists(r.path))
                 f.buffer = r.fs->readFile(r.path);
             else if (requireExisting && !isAbsolutePath(userPath) && r.fs->exists(userPath)) {
-                f.path = userPath;
+                f.path = keel::String(userPath);
                 f.buffer = r.fs->readFile(userPath);
             } else if (requireExisting) {
-                lastFopenError_ = "No such file or directory";
+                lastFopenError_ = keel::String::from("No such file or directory");
                 return -1;
             }
         } catch (const std::exception &e) {
             if (requireExisting) {
-                lastFopenError_ = e.what();
+                lastFopenError_ = keel::String(e.what());
                 return -1;
             }
             f.buffer.clear();
@@ -212,54 +224,53 @@ int FsContext::openFile(const std::string &userPath, const std::string &modeRaw)
     if (appendOnly)
         f.cursor = f.buffer.size();
 
-    int fid = 3;
-    while (openFiles_.find(fid) != openFiles_.end())
+    keel::i32 fid = 3;
+    while (openFiles_.contains(fid))
         ++fid;
-    openFiles_.emplace(fid, std::move(f));
+    openFiles_.put(fid, keel::move(f));
     return fid;
 }
 
-bool FsContext::closeFile(int fid)
+bool FsContext::closeFile(keel::i32 fid)
 {
-    auto it = openFiles_.find(fid);
-    if (it == openFiles_.end())
+    auto *f = openFiles_.get(fid);
+    if (!f)
         return false;
 
     bool ok = true;
-    if (it->second.forWrite) {
+    if (f->forWrite) {
         try {
-            it->second.fs->writeFile(it->second.path, it->second.buffer);
+            f->fs->writeFile(f->path, f->buffer);
         } catch (const std::exception &) {
             ok = false;
         }
     }
-    openFiles_.erase(it);
+    openFiles_.remove(fid);
     return ok;
 }
 
 void FsContext::closeAllFiles()
 {
-    std::vector<int> fids;
+    keel::Array<keel::i32> fids;
     fids.reserve(openFiles_.size());
-    for (auto &kv : openFiles_)
-        fids.push_back(kv.first);
-    for (int fid : fids)
+    for (auto entry : openFiles_)
+        fids.push_back(entry.key);
+    for (keel::i32 fid : fids)
         closeFile(fid);
 }
 
-FsContext::OpenFile *FsContext::findFile(int fid)
+FsContext::OpenFile *FsContext::findFile(keel::i32 fid)
 {
-    auto it = openFiles_.find(fid);
-    return (it == openFiles_.end()) ? nullptr : &it->second;
+    return openFiles_.get(fid);
 }
 
-std::vector<int> FsContext::openFileIds() const
+keel::Array<keel::i32> FsContext::openFileIds() const
 {
-    std::vector<int> ids;
+    keel::Array<keel::i32> ids;
     ids.reserve(openFiles_.size());
-    for (auto &kv : openFiles_)
-        ids.push_back(kv.first);
-    std::sort(ids.begin(), ids.end());
+    for (auto entry : openFiles_)
+        ids.push_back(entry.key);
+    keel::sort(ids);
     return ids;
 }
 

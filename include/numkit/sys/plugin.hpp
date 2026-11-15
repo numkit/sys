@@ -9,12 +9,11 @@
 #include <numkit/sys/process.hpp>
 #include <numkit/sys/fs_context.hpp>
 
+#include <keel/array.h>
+#include <keel/function.h>
 #include <keel/memory.h>
 #include <keel/ref.h>
-
-#include <functional>
-#include <string>
-#include <vector>
+#include <keel/string.h>
 
 #ifndef NUMKIT_PLUGIN_ABI_VERSION
 #  define NUMKIT_PLUGIN_ABI_VERSION 1
@@ -50,10 +49,10 @@ class Environment;
 struct CallContext;
 
 // Signature of external functions registered into the engine
-using ExternalFunc = std::function<void(keel::ArrayRef<Value> args,
-                                        keel::usize nargout,
-                                        keel::MutArrayRef<Value> outs,
-                                        CallContext &ctx)>;
+using ExternalFunc = keel::SmallFunction<void(keel::ArrayRef<Value> args,
+                                              keel::usize nargout,
+                                              keel::MutArrayRef<Value> outs,
+                                              CallContext &ctx), 32>;
 
 // PluginContext: host interface passed to numkit_plugin_init.
 // Inherited by HostPluginContext in the host engine.
@@ -61,36 +60,36 @@ class PluginContext {
 public:
     virtual ~PluginContext() = default;
     virtual keel::Allocator *allocator() const noexcept = 0;
-    virtual void registerFunction(const std::string &ns, const std::string &name, ExternalFunc func) = 0;
-    virtual void registerFunction(const std::string &name, ExternalFunc func) = 0;
+    virtual void registerFunction(keel::StringRef ns, keel::StringRef name, ExternalFunc func) = 0;
+    virtual void registerFunction(keel::StringRef name, ExternalFunc func) = 0;
     virtual Value callFunctionHandle(const Value &handle, keel::ArrayRef<Value> args, Environment *env = nullptr) {
         (void)handle; (void)args; (void)env;
         return Value();
     }
-    virtual std::vector<Value> callFunctionHandleMulti(const Value &handle, keel::ArrayRef<Value> args, keel::usize nargout, Environment *env = nullptr) {
+    virtual keel::Array<Value> callFunctionHandleMulti(const Value &handle, keel::ArrayRef<Value> args, keel::usize nargout, Environment *env = nullptr) {
         (void)handle; (void)args; (void)nargout; (void)env;
-        return {};
+        return keel::Array<Value>(allocator());
     }
     virtual keel::u32 abiVersion() const noexcept { return NUMKIT_PLUGIN_ABI_VERSION; }
 
-    virtual sys::ProcessResult runProcess(const std::string &command) {
-        return sys::runProcess(command);
+    virtual sys::ProcessResult runProcess(keel::StringRef command) {
+        return sys::runProcess(command, allocator());
     }
 
     virtual ops::RngContext &rng() = 0;
-    virtual FsContext::ResolvedPath resolvePath(const std::string &userPath) const = 0;
+    virtual FsContext::ResolvedPath resolvePath(keel::StringRef userPath) const = 0;
     virtual FigureManager &figureManager() = 0;
-    virtual void registerBuiltinMSource(const std::string &src) { (void)src; }
-    virtual const ExternalFunc *findExternal(const std::string &name, const Environment *env = nullptr) const {
+    virtual void registerBuiltinMSource(keel::StringRef src) { (void)src; }
+    virtual const ExternalFunc *findExternal(keel::StringRef name, const Environment *env = nullptr) const {
         (void)name; (void)env;
         return nullptr;
     }
     virtual void registerClass(BuiltinClass cls) { (void)cls; }
-    virtual const BuiltinClass *findClass(const std::string &name) const {
+    virtual const BuiltinClass *findClass(keel::StringRef name) const {
         (void)name;
         return nullptr;
     }
-    virtual void assignToCaller(keel::i32 n, const std::string &name, Value val) {
+    virtual void assignToCaller(keel::i32 n, keel::StringRef name, Value val) {
         (void)n; (void)name; (void)val;
     }
 };

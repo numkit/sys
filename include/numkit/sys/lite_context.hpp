@@ -11,13 +11,15 @@
 #include <numkit/value/object.hpp>
 #include <numkit/value/value.hpp>
 
+#include <keel/array.h>
+#include <keel/format.h>
+#include <keel/hash_map.h>
 #include <keel/memory.h>
 #include <keel/ref.h>
+#include <keel/smart_ptr.h>
+#include <keel/string.h>
 
 #include <stdexcept>
-#include <string>
-#include <unordered_map>
-#include <vector>
 
 namespace numkit::sys {
 
@@ -28,6 +30,10 @@ public:
                                keel::Allocator *alloc = keel::default_allocator())
         : rng_(rng)
         , alloc_(alloc ? alloc : keel::default_allocator())
+        , qualifiedFuncs_(alloc_)
+        , bareFuncs_(alloc_)
+        , classes_(alloc_)
+        , callerVars_(alloc_)
     {
     }
 
@@ -42,41 +48,42 @@ public:
 
     keel::Allocator *allocator() const noexcept override { return alloc_; }
 
-    void registerFunction(const std::string &ns, const std::string &name, ExternalFunc func) override
+    void registerFunction(keel::StringRef ns, keel::StringRef name, ExternalFunc func) override
     {
         if (name.empty() || !func) return;
-        ExternalFunc wrapped = wrapWithSelf(std::move(func));
+        auto wrapped = keel::make_arc_in<ExternalFunc>(alloc_, wrapWithSelf(keel::move(func)));
         if (!ns.empty()) {
-            qualifiedFuncs_[ns + "." + name] = wrapped;
-            auto dot = ns.find('.');
-            if (dot != std::string::npos) {
-                std::string topNs = ns.substr(0, dot);
+            qualifiedFuncs_.put(keel::format_alloc(alloc_, "{}.{}", ns, name), wrapped);
+            keel::usize dot = ns.find('.');
+            if (dot != keel::kInvalidIndex) {
+                keel::StringRef topNs = ns.substr(0, dot);
                 if (!topNs.empty()) {
-                    qualifiedFuncs_[topNs + "." + name] = wrapped;
+                    qualifiedFuncs_.put(keel::format_alloc(alloc_, "{}.{}", topNs, name), wrapped);
                 }
             }
         }
-        bareFuncs_[name] = std::move(wrapped);
+        bareFuncs_.put(keel::String(name, alloc_), keel::move(wrapped));
     }
 
-    void registerFunction(const std::string &name, ExternalFunc func) override
+    void registerFunction(keel::StringRef name, ExternalFunc func) override
     {
         if (name.empty() || !func) return;
-        bareFuncs_[name] = wrapWithSelf(std::move(func));
+        auto wrapped = keel::make_arc_in<ExternalFunc>(alloc_, wrapWithSelf(keel::move(func)));
+        bareFuncs_.put(keel::String(name, alloc_), keel::move(wrapped));
     }
 
     Value callFunctionHandle(const Value &handle, keel::ArrayRef<Value> args, Environment * /*env*/) override
     {
         auto res = callFunctionHandleMulti(handle, args, 1, nullptr);
-        return res.empty() ? Value() : std::move(res[0]);
+        return res.empty() ? Value() : keel::move(res[0]);
     }
 
-    std::vector<Value> callFunctionHandleMulti(const Value &handle,
+    keel::Array<Value> callFunctionHandleMulti(const Value &handle,
                                                keel::ArrayRef<Value> args,
                                                keel::usize nargout,
                                                Environment * /*env*/) override
     {
-        std::string fnName;
+        keel::String fnName(alloc_);
         if (handle.isFuncHandle()) {
             fnName = handle.funcHandleName();
         } else if (handle.isChar() || handle.isString()) {
@@ -88,10 +95,12 @@ public:
         }
         const ExternalFunc *fn = findExternal(fnName, nullptr);
         if (!fn) {
-            throw std::runtime_error("Undefined function handle '" + fnName + "'");
+            throw std::runtime_error(
+                keel::format("Undefined function handle '{}'", fnName).c_str());
         }
         keel::usize actualOut = nargout == 0 ? 1 : nargout;
-        std::vector<Value> outs(actualOut);
+        keel::Array<Value> outs(alloc_);
+        outs.resize(actualOut);
         CallContext ctx{reinterpret_cast<Engine *>(static_cast<PluginContext *>(this)), nullptr};
         (*fn)(args, nargout, keel::MutArrayRef<Value>(outs.data(), outs.size()), ctx);
         return outs;
@@ -105,7 +114,7 @@ public:
         return *rng_;
     }
 
-    FsContext::ResolvedPath resolvePath(const std::string &userPath) const override
+    FsContext::ResolvedPath resolvePath(keel::StringRef userPath) const override
     {
         return fs_.resolvePath(userPath);
     }
@@ -115,54 +124,55 @@ public:
         throw std::runtime_error("FigureManager is not available in LitePluginContext");
     }
 
-    const ExternalFunc *findExternal(const std::string &name,
+    const ExternalFunc *findExternal(keel::StringRef name,
                                      const Environment * /*env*/) const override
     {
-        auto qIt = qualifiedFuncs_.find(name);
-        if (qIt != qualifiedFuncs_.end()) return &qIt->second;
-        auto bIt = bareFuncs_.find(name);
-        if (bIt != bareFuncs_.end()) return &bIt->second;
+        if (const auto *q = qualifiedFuncs_.get(name)) return q->get();
+        if (const auto *b = bareFuncs_.get(name)) return b->get();
         return nullptr;
     }
 
     void registerClass(BuiltinClass cls) override
     {
-        std::string className = cls.name;
-        if (cls.construct && bareFuncs_.find(className) == bareFuncs_.end()) {
-            auto ctor = cls.construct;
-            registerFunction(className, [ctor](keel::ArrayRef<Value> args,
-                                               keel::usize /*nargout*/,
-                                               keel::MutArrayRef<Value> outs,
-                                               CallContext &ctx) {
-                if (!outs.empty()) {
-                    outs[0] = ctor(args, ctx);
+        keel::String className = cls.name.clone(alloc_);
+        const bool hasCtor = static_cast<bool>(cls.construct);
+        classes_.put(className.clone(alloc_), keel::make_unique_in<BuiltinClass>(alloc_, keel::move(cls)));
+        if (hasCtor && !bareFuncs_.contains(className)) {
+            keel::StringRef nameRef = className;
+            registerFunction(nameRef, [this, cname = keel::move(className)](keel::ArrayRef<Value> args,
+                                                                            keel::usize /*nargout*/,
+                                                                            keel::MutArrayRef<Value> outs,
+                                                                            CallContext &ctx) {
+                const BuiltinClass *c = this->findClass(cname);
+                if (c && c->construct && !outs.empty()) {
+                    outs[0] = c->construct(args, ctx);
                 }
             });
         }
-        classes_[className] = std::move(cls);
     }
 
-    const BuiltinClass *findClass(const std::string &name) const override
+    const BuiltinClass *findClass(keel::StringRef name) const override
     {
-        auto it = classes_.find(name);
-        return it != classes_.end() ? &it->second : nullptr;
+        const auto *it = classes_.get(name);
+        return it ? it->get() : nullptr;
     }
 
-    void assignToCaller(keel::i32 /*n*/, const std::string &name, Value val) override
+    void assignToCaller(keel::i32 /*n*/, keel::StringRef name, Value val) override
     {
-        callerVars_[name] = std::move(val);
+        callerVars_.put(keel::String(name, alloc_), keel::move(val));
     }
 
-    const ExternalFunc *resolve(const std::string &ns, const std::string &name) const
+    const ExternalFunc *resolve(keel::StringRef ns, keel::StringRef name) const
     {
         if (!ns.empty()) {
-            auto qIt = qualifiedFuncs_.find(ns + "." + name);
-            if (qIt != qualifiedFuncs_.end()) return &qIt->second;
+            keel::SmallString<128> key;
+            (void)keel::format_into(key, "{}.{}", ns, name);
+            if (const auto *q = qualifiedFuncs_.get(key.as_ref())) return q->get();
         }
         return findExternal(name, nullptr);
     }
 
-    bool hasFunction(const std::string &ns, const std::string &name) const
+    bool hasFunction(keel::StringRef ns, keel::StringRef name) const
     {
         return resolve(ns, name) != nullptr;
     }
@@ -179,8 +189,8 @@ public:
         (*fn)(args, nargout, outs, ctx);
     }
 
-    void invoke(const std::string &ns,
-                const std::string &name,
+    void invoke(keel::StringRef ns,
+                keel::StringRef name,
                 keel::ArrayRef<Value> args,
                 keel::usize nargout,
                 keel::MutArrayRef<Value> outs)
@@ -190,17 +200,15 @@ public:
         if (!args.empty() && args[0].isObject()) {
             const BuiltinClass *cls = findClass(args[0].objectClassName());
             if (cls) {
-                auto mIt = cls->methods.find(name);
-                if (mIt != cls->methods.end() && mIt->second) {
+                if (const ObjectMethod *m = cls->methods.get(name); m && *m) {
                     Value selfCopy = args[0];
                     keel::ArrayRef<Value> rest = args.slice(1);
-                    mIt->second(selfCopy, rest, nargout, outs, ctx);
+                    (*m)(selfCopy, rest, nargout, outs, ctx);
                     return;
                 }
-                auto opIt = cls->ops.find(name);
-                if (opIt != cls->ops.end() && opIt->second) {
+                if (const ObjectMethod *op = cls->ops.get(name); op && *op) {
                     Value selfCopy = args[0];
-                    opIt->second(selfCopy, args, nargout, outs, ctx);
+                    (*op)(selfCopy, args, nargout, outs, ctx);
                     return;
                 }
             }
@@ -208,33 +216,37 @@ public:
 
         const ExternalFunc *fn = resolve(ns, name);
         if (!fn) {
-            std::string full = ns.empty() ? name : (ns + "." + name);
-            throw std::runtime_error("Undefined function '" + full + "'");
+            if (ns.empty()) {
+                throw std::runtime_error(keel::format("Undefined function '{}'", name).c_str());
+            }
+            throw std::runtime_error(keel::format("Undefined function '{}.{}'", ns, name).c_str());
         }
         (*fn)(args, nargout, outs, ctx);
     }
 
-    std::string formatValue(const Value &v) const
+    keel::String formatValue(const Value &v) const
     {
         if (!v.isObject()) return v.toString();
         const BuiltinClass *cls = findClass(v.objectClassName());
         if (cls) {
-            auto charIt = cls->methods.find("char");
-            if (charIt != cls->methods.end() && charIt->second) {
+            if (const ObjectMethod *charFn = cls->methods.get("char"); charFn && *charFn) {
                 Value selfCopy = v;
                 Value out;
                 CallContext ctx{
                     reinterpret_cast<Engine *>(const_cast<LitePluginContext *>(this)), nullptr};
-                charIt->second(selfCopy, keel::ArrayRef<Value>(), 1, keel::MutArrayRef<Value>(&out, 1), ctx);
+                (*charFn)(selfCopy, keel::ArrayRef<Value>(), 1, keel::MutArrayRef<Value>(&out, 1), ctx);
                 if (out.isChar() || out.isString()) {
                     return out.toString();
                 }
             }
             if (cls->dispText) {
-                std::string s = cls->dispText(v);
-                while (!s.empty() && (s.front() == ' ' || s.front() == '\n')) s.erase(s.begin());
-                while (!s.empty() && (s.back() == ' ' || s.back() == '\n')) s.pop_back();
-                return s;
+                keel::String s = cls->dispText(v);
+                keel::StringRef r = s.as_ref();
+                while (!r.empty() && (r.front() == ' ' || r.front() == '\n'))
+                    r = r.substr(1);
+                while (!r.empty() && (r.back() == ' ' || r.back() == '\n'))
+                    r = r.substr(0, r.size() - 1);
+                return keel::String(r, alloc_);
             }
         }
         return v.toString();
@@ -243,23 +255,23 @@ public:
 private:
     ExternalFunc wrapWithSelf(ExternalFunc func)
     {
-        return [this, fn = std::move(func)](keel::ArrayRef<Value> args,
-                                            keel::usize nargout,
-                                            keel::MutArrayRef<Value> outs,
-                                            CallContext &ctx) {
+        return ExternalFunc([this, fn = keel::move(func)](keel::ArrayRef<Value> args,
+                                                          keel::usize nargout,
+                                                          keel::MutArrayRef<Value> outs,
+                                                          CallContext &ctx) {
             CallContext localCtx = ctx;
             localCtx.engine = reinterpret_cast<Engine *>(static_cast<PluginContext *>(this));
             fn(args, nargout, outs, localCtx);
-        };
+        }, alloc_);
     }
 
     ops::RngContext *rng_;
     keel::Allocator *alloc_;
     FsContext fs_;
-    std::unordered_map<std::string, ExternalFunc> qualifiedFuncs_;
-    std::unordered_map<std::string, ExternalFunc> bareFuncs_;
-    std::unordered_map<std::string, BuiltinClass> classes_;
-    std::unordered_map<std::string, Value> callerVars_;
+    keel::HashMap<keel::String, keel::Arc<ExternalFunc>> qualifiedFuncs_;
+    keel::HashMap<keel::String, keel::Arc<ExternalFunc>> bareFuncs_;
+    keel::HashMap<keel::String, keel::UniquePtr<BuiltinClass>> classes_;
+    keel::HashMap<keel::String, Value> callerVars_;
 };
 
 } // namespace numkit::sys

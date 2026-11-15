@@ -3,8 +3,10 @@
 // Cross-platform environment variable access and manipulation.
 #pragma once
 
+#include <keel/format.h>
+#include <keel/string.h>
+
 #include <cstdlib>
-#include <string>
 
 #ifdef _WIN32
 #  include <stdlib.h>
@@ -14,40 +16,45 @@ namespace numkit::sys {
 
 inline constexpr const char *kEnvPrefix = "NUMKIT";
 
-inline std::string envVarName(const char *suffix)
+inline keel::String envVarName(keel::StringRef suffix, keel::Allocator *alloc = nullptr)
 {
-    return std::string(kEnvPrefix) + "_" + suffix;
+    return keel::format_alloc(alloc ? alloc : keel::default_allocator(), "{}_{}", kEnvPrefix, suffix);
 }
 
 // Cross-platform environment-variable read: returns "" when unset.
-inline std::string envGet(const char *name)
+inline keel::String envGet(keel::StringRef name, keel::Allocator *alloc = nullptr)
 {
+    keel::SmallString<128> key(name);
 #ifdef _WIN32
     char *buf = nullptr;
     size_t len = 0;
-    _dupenv_s(&buf, &len, name);
-    std::string s = buf ? buf : "";
+    _dupenv_s(&buf, &len, key.c_str());
+    keel::String s = buf ? keel::String(buf, alloc) : keel::String(alloc);
     std::free(buf);
     return s;
 #else
-    const char *v = std::getenv(name);
-    return v ? v : "";
+    const char *v = std::getenv(key.c_str());
+    return v ? keel::String(v, alloc) : keel::String(alloc);
 #endif
 }
 
-inline void envSet(const char *name, const std::string &value)
+inline void envSet(keel::StringRef name, keel::StringRef value)
 {
+    keel::SmallString<128> key(name);
+    keel::SmallString<256> val(value);
 #ifdef _WIN32
-    _putenv_s(name, value.c_str());
+    _putenv_s(key.c_str(), val.c_str());
 #else
-    setenv(name, value.c_str(), 1);
+    setenv(key.c_str(), val.c_str(), 1);
 #endif
 }
 
 // Reads environment variable with NUMKIT_<suffix>.
-inline std::string envGetPrefixed(const char *suffix)
+inline keel::String envGetPrefixed(keel::StringRef suffix, keel::Allocator *alloc = nullptr)
 {
-    return envGet(envVarName(suffix).c_str());
+    keel::SmallString<128> key;
+    (void)keel::format_into(key, "{}_{}", kEnvPrefix, suffix);
+    return envGet(key, alloc);
 }
 
 } // namespace numkit::sys

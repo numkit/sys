@@ -4,19 +4,21 @@
 
 #include <numkit/sys/process.hpp>
 
+#include <keel/format.h>
+#include <keel/string.h>
+
 #include <cstdlib>
-#include <sstream>
 
 #if defined(__EMSCRIPTEN__)
 
 namespace numkit::sys {
 
-ProcessResult runProcess(const std::string &/*command*/)
+ProcessResult runProcess(keel::StringRef /*command*/, keel::Allocator *alloc)
 {
-    return {-1, "numkit::sys::runProcess: process execution is not supported in WebAssembly environment"};
+    return {-1, keel::String("numkit::sys::runProcess: process execution is not supported in WebAssembly environment", alloc)};
 }
 
-bool isCommandAvailable(const std::string &/*commandName*/)
+bool isCommandAvailable(keel::StringRef /*commandName*/)
 {
     return false;
 }
@@ -40,32 +42,33 @@ bool isCommandAvailable(const std::string &/*commandName*/)
 
 namespace numkit::sys {
 
-ProcessResult runProcess(const std::string &command)
+ProcessResult runProcess(keel::StringRef command, keel::Allocator *alloc)
 {
-    ProcessResult r;
+    keel::Allocator *a = alloc ? alloc : keel::default_allocator();
+    ProcessResult r{-1, keel::String(a)};
     // Capture combined stdout and stderr.
     // On Windows, _popen invokes `cmd.exe /c <string>`, which strips the first
     // and last quote when the command starts with `"` and contains multiple
     // quoted arguments; wrapping the entire string in outer quotes preserves
     // inner quotes intact.
+    keel::SmallString<512> fullCmd;
 #ifdef _WIN32
-    std::string fullCmd = "\"" + command + " 2>&1\"";
+    (void)keel::format_into(fullCmd, "\"{} 2>&1\"", command);
     FILE *pipe = popen_cmd(fullCmd.c_str(), "rt");
 #else
-    std::string fullCmd = command + " 2>&1";
+    (void)keel::format_into(fullCmd, "{} 2>&1", command);
     FILE *pipe = popen_cmd(fullCmd.c_str(), "r");
 #endif
 
     if (!pipe) {
         r.exitCode = -1;
-        r.output = "runProcess: failed to spawn process for command: " + command;
+        r.output = keel::format_alloc(a, "runProcess: failed to spawn process for command: {}", command);
         return r;
     }
 
-    std::ostringstream ss;
     char buf[4096];
     while (std::fgets(buf, sizeof(buf), pipe)) {
-        ss << buf;
+        r.output.append(keel::StringRef(buf));
     }
 
     int status = pclose_cmd(pipe);
@@ -74,15 +77,15 @@ ProcessResult runProcess(const std::string &command)
 #else
     r.exitCode = (status != -1 && WIFEXITED(status)) ? WEXITSTATUS(status) : status;
 #endif
-    r.output = ss.str();
     return r;
 }
 
-bool isCommandAvailable(const std::string &commandName)
+bool isCommandAvailable(keel::StringRef commandName)
 {
     if (commandName.empty())
         return false;
-    for (unsigned char ch : commandName) {
+    for (keel::usize i = 0; i < commandName.size(); ++i) {
+        const auto ch = static_cast<unsigned char>(commandName[i]);
         if (ch < 0x20 || ch == 0x7F)
             return false;
     }
@@ -92,20 +95,22 @@ bool isCommandAvailable(const std::string &commandName)
             ch == '>' || ch == '^' || ch == '%' || ch == '!' || ch == '`')
             return false;
     }
-    std::string probe = "where \"" + commandName + "\" >nul 2>nul";
+    keel::SmallString<256> probe;
+    (void)keel::format_into(probe, "where \"{}\" >nul 2>nul", commandName);
     return std::system(probe.c_str()) == 0;
 #else
     if (commandName[0] == '-')
         return false;
-    std::string quoted = "'";
+    keel::SmallString<256> quoted("'");
     for (char ch : commandName) {
         if (ch == '\'')
-            quoted += "'\\''";
+            quoted.append("'\\''");
         else
             quoted.push_back(ch);
     }
     quoted.push_back('\'');
-    std::string probe = "command -v -- " + quoted + " >/dev/null 2>&1";
+    keel::SmallString<320> probe;
+    (void)keel::format_into(probe, "command -v -- {} >/dev/null 2>&1", quoted);
     return std::system(probe.c_str()) == 0;
 #endif
 }

@@ -8,32 +8,30 @@
 #include <numkit/sys/env.hpp>
 #include <numkit/sys/vfs.hpp>
 
+#include <keel/array.h>
 #include <keel/core.h>
-
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <unordered_map>
-#include <vector>
+#include <keel/hash_map.h>
+#include <keel/smart_ptr.h>
+#include <keel/string.h>
 
 namespace numkit::sys {
 
 class FsContext
 {
 public:
-    void registerVirtualFS(std::unique_ptr<VirtualFS> fs);
-    VirtualFS *findVirtualFS(const std::string &name) const;
+    void registerVirtualFS(keel::UniquePtr<VirtualFS> fs);
+    VirtualFS *findVirtualFS(keel::StringRef name) const;
 
-    void pushScriptOrigin(const std::string &fsName);
-    void pushScriptOrigin(const std::string &fsName, const std::string &scriptDir);
-    void pushScriptOrigin(const std::string &fsName, const std::string &scriptDir,
-                          const std::string &scriptFile);
+    void pushScriptOrigin(keel::StringRef fsName);
+    void pushScriptOrigin(keel::StringRef fsName, keel::StringRef scriptDir);
+    void pushScriptOrigin(keel::StringRef fsName, keel::StringRef scriptDir,
+                          keel::StringRef scriptFile);
     void popScriptOrigin();
-    const std::string *currentScriptOrigin() const;
-    const std::string *currentScriptDir() const;
-    const std::string *currentScriptFile() const;
+    const keel::String *currentScriptOrigin() const;
+    const keel::String *currentScriptDir() const;
+    const keel::String *currentScriptFile() const;
 
-    keel::usize scriptOriginDepth() const { return scriptOriginStack_.size(); }
+    keel::usize scriptOriginDepth() const noexcept { return scriptOriginStack_.size(); }
     void truncateScriptOrigins(keel::usize depth)
     {
         if (depth < scriptOriginStack_.size())
@@ -43,8 +41,8 @@ public:
     class OriginFrame
     {
     public:
-        OriginFrame(FsContext &fs, const std::string &fsName,
-                    const std::string &scriptDir, const std::string &scriptFile)
+        OriginFrame(FsContext &fs, keel::StringRef fsName,
+                    keel::StringRef scriptDir, keel::StringRef scriptFile)
             : fs_(fs)
             , depth_(fs.scriptOriginDepth())
         {
@@ -59,49 +57,49 @@ public:
         keel::usize depth_;
     };
 
-    const std::string &cwd() const { return cwd_; }
-    void setCwd(const std::string &p) { cwd_ = p; }
+    const keel::String &cwd() const noexcept { return cwd_; }
+    void setCwd(keel::StringRef p) { cwd_.assign(p); }
 
     struct ResolvedPath
     {
         VirtualFS *fs = nullptr;
-        std::string path;
+        keel::String path;
     };
-    ResolvedPath resolvePath(const std::string &userPath) const;
+    ResolvedPath resolvePath(keel::StringRef userPath) const;
 
     struct OpenFile
     {
-        std::string path;
-        std::string mode;
+        keel::String path;
+        keel::String mode;
         VirtualFS *fs = nullptr;
-        std::string buffer;
+        keel::String buffer;
         keel::usize cursor = 0;
         bool forRead = false;
         bool forWrite = false;
         bool appendOnly = false;
-        std::string lastError;
+        keel::String lastError;
     };
 
-    keel::i32 openFile(const std::string &userPath, const std::string &mode);
+    keel::i32 openFile(keel::StringRef userPath, keel::StringRef mode);
     bool closeFile(keel::i32 fid);
     void closeAllFiles();
     OpenFile *findFile(keel::i32 fid);
-    std::vector<keel::i32> openFileIds() const;
-    const std::string &lastFopenError() const { return lastFopenError_; }
+    keel::Array<keel::i32> openFileIds() const;
+    const keel::String &lastFopenError() const noexcept { return lastFopenError_; }
 
 private:
-    std::unordered_map<std::string, std::unique_ptr<VirtualFS>> virtualFs_;
+    keel::HashMap<keel::String, keel::UniquePtr<VirtualFS>> virtualFs_;
     struct ScriptOriginEntry
     {
-        std::string fsName;
-        std::string scriptDir;
-        std::string scriptFile;
+        keel::String fsName;
+        keel::String scriptDir;
+        keel::String scriptFile;
     };
-    std::vector<ScriptOriginEntry> scriptOriginStack_;
-    std::string cwd_;
+    keel::Array<ScriptOriginEntry> scriptOriginStack_;
+    keel::String cwd_;
 
-    std::unordered_map<keel::i32, OpenFile> openFiles_;
-    std::string lastFopenError_;
+    keel::HashMap<keel::i32, OpenFile> openFiles_;
+    keel::String lastFopenError_;
 };
 
 } // namespace numkit::sys
