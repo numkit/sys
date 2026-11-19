@@ -83,11 +83,11 @@ public:
                                                keel::usize nargout,
                                                Environment * /*env*/) override
     {
-        keel::String fnName(alloc_);
+        keel::StringRef fnName;
         if (handle.isFuncHandle()) {
-            fnName = handle.funcHandleName();
+            fnName = handle.funcHandleNameRef();
         } else if (handle.isChar() || handle.isString()) {
-            fnName = handle.toString();
+            fnName = handle.asStringRef();
         }
         if (fnName.empty() || fnName[0] == '@') {
             throw std::runtime_error(
@@ -198,7 +198,7 @@ public:
         CallContext ctx{reinterpret_cast<Engine *>(static_cast<PluginContext *>(this)), nullptr};
 
         if (!args.empty() && args[0].isObject()) {
-            const BuiltinClass *cls = findClass(args[0].objectClassName());
+            const BuiltinClass *cls = findClass(args[0].objectClassNameRef());
             if (cls) {
                 if (const ObjectMethod *m = cls->methods.get(name); m && *m) {
                     Value selfCopy = args[0];
@@ -227,7 +227,7 @@ public:
     keel::String formatValue(const Value &v) const
     {
         if (!v.isObject()) return v.toString();
-        const BuiltinClass *cls = findClass(v.objectClassName());
+        const BuiltinClass *cls = findClass(v.objectClassNameRef());
         if (cls) {
             if (const ObjectMethod *charFn = cls->methods.get("char"); charFn && *charFn) {
                 Value selfCopy = v;
