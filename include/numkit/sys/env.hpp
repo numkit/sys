@@ -3,14 +3,9 @@
 // Cross-platform environment variable access and manipulation.
 #pragma once
 
+#include <keel/env.h>
 #include <keel/format.h>
 #include <keel/string.h>
-
-#include <cstdlib>
-
-#ifdef _WIN32
-#  include <stdlib.h>
-#endif
 
 namespace numkit::sys {
 
@@ -24,29 +19,12 @@ inline keel::String envVarName(keel::StringRef suffix, keel::Allocator *alloc = 
 // Cross-platform environment-variable read: returns "" when unset.
 inline keel::String envGet(keel::StringRef name, keel::Allocator *alloc = nullptr)
 {
-    keel::SmallString<128> key(name);
-#ifdef _WIN32
-    char *buf = nullptr;
-    size_t len = 0;
-    _dupenv_s(&buf, &len, key.c_str());
-    keel::String s = buf ? keel::String(buf, alloc) : keel::String(alloc);
-    std::free(buf);
-    return s;
-#else
-    const char *v = std::getenv(key.c_str());
-    return v ? keel::String(v, alloc) : keel::String(alloc);
-#endif
+    return keel::env_get_or_empty(name, alloc);
 }
 
 inline void envSet(keel::StringRef name, keel::StringRef value)
 {
-    keel::SmallString<128> key(name);
-    keel::SmallString<256> val(value);
-#ifdef _WIN32
-    _putenv_s(key.c_str(), val.c_str());
-#else
-    setenv(key.c_str(), val.c_str(), 1);
-#endif
+    (void)keel::env_set(name, value);
 }
 
 // Reads environment variable with NUMKIT_<suffix>.
