@@ -9,6 +9,8 @@
 
 #include <keel/format.h>
 #include <keel/fs.h>
+#include <keel/process.h>
+#include <keel/small_array.h>
 #include <keel/string.h>
 
 namespace numkit::sys {
@@ -44,35 +46,7 @@ keel::String userNumkitPrefix() {
 }
 
 keel::String exeName(keel::StringRef base) {
-#ifdef _WIN32
-    return keel::format("{}.exe", base);
-#else
-    return keel::String(base);
-#endif
-}
-
-keel::String quoteCmdPath(keel::StringRef p) {
-#ifdef _WIN32
-    keel::String out("\"");
-    for (char ch : p) {
-        if (ch == '"')
-            out.append("\\\"");
-        else
-            out.push_back(ch);
-    }
-    out.push_back('"');
-    return out;
-#else
-    keel::String out("'");
-    for (char ch : p) {
-        if (ch == '\'')
-            out.append("'\\''");
-        else
-            out.push_back(ch);
-    }
-    out.push_back('\'');
-    return out;
-#endif
+    return keel::format("{}{}", base, keel::process_exe_extension());
 }
 
 ToolInfo probeCandidate(keel::StringRef name, keel::StringRef exePath,
@@ -89,20 +63,25 @@ ToolInfo probeCandidate(keel::StringRef name, keel::StringRef exePath,
             return info;
     }
 
-    keel::String cmd = quoteCmdPath(exePath);
-    if (!extraArgs.empty()) {
-        cmd.push_back(' ');
-        cmd.append(extraArgs);
+    keel::SmallArray<keel::StringRef, 8> argv;
+    argv.push_back(exePath);
+    keel::usize pos = 0;
+    while (pos < extraArgs.size()) {
+        while (pos < extraArgs.size() && extraArgs[pos] == ' ') ++pos;
+        const keel::usize start = pos;
+        while (pos < extraArgs.size() && extraArgs[pos] != ' ') ++pos;
+        if (pos > start) argv.push_back(extraArgs.substr(start, pos - start));
     }
-    if (!versionArg.empty()) {
-        cmd.push_back(' ');
-        cmd.append(versionArg);
-    }
+    if (!versionArg.empty()) argv.push_back(versionArg);
 
-    auto res = runProcess(cmd);
-    if (res.ok()) {
+    keel::ProcessOptions opts;
+    opts.capture_stdout = true;
+    opts.capture_stderr = true;
+    opts.merge_stderr = true;
+    auto res = keel::process_run(argv.as_ref(), opts);
+    if (res.is_ok() && res->ok()) {
         info.found = true;
-        info.version = firstLine(res.output);
+        info.version = firstLine(res->stdout_text);
     }
     return info;
 }

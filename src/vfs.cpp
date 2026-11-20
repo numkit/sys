@@ -7,12 +7,6 @@
 #include <keel/format.h>
 #include <keel/fs.h>
 
-#if !defined(_WIN32)
-#  include <fcntl.h>
-#  include <sys/stat.h>
-#  include <time.h>
-#endif
-
 namespace numkit::sys {
 
 keel::String NativeFS::readFile(keel::StringRef path)
@@ -28,14 +22,7 @@ void NativeFS::writeFile(keel::StringRef path, keel::StringRef content)
     keel::Error err = keel::fs_write_text(path, content);
     if (err.is_err())
         throw std::runtime_error(keel::format("cannot open '{}' for writing", path).c_str());
-#if !defined(_WIN32)
-    struct timespec ts[2];
-    if (::clock_gettime(CLOCK_REALTIME, &ts[0]) == 0) {
-        ts[1] = ts[0];
-        keel::PathBuf cpath(path);
-        (void)::utimensat(AT_FDCWD, cpath.c_str(), ts, 0);
-    }
-#endif
+    (void)keel::fs_set_mtime_now(path);
 }
 
 bool NativeFS::exists(keel::StringRef path)
