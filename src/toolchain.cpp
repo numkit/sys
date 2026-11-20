@@ -38,18 +38,9 @@ bool isRegularFile(keel::StringRef p) noexcept {
 keel::String userNumkitPrefix() {
     keel::String custom = envGet("NUMKIT_PREFIX");
     if (!custom.empty()) return custom;
-#ifdef _WIN32
-    keel::String home = envGet("USERPROFILE");
-    if (home.empty()) {
-        keel::String hd = envGet("HOMEDRIVE");
-        keel::String hp = envGet("HOMEPATH");
-        home = keel::format("{}{}", hd, hp);
-    }
-#else
-    keel::String home = envGet("HOME");
-#endif
-    if (home.empty()) return keel::String::from(".numkit");
-    return joinSeg(home, ".numkit");
+    auto home = keel::fs_home_dir();
+    if (home.is_err() || home->empty()) return keel::String::from(".numkit");
+    return joinSeg(*home, ".numkit");
 }
 
 keel::String exeName(keel::StringRef base) {
