@@ -61,7 +61,7 @@ keel::Optional<FileStat> NativeFS::stat(keel::StringRef path)
         out.size = 0;
     } else if (st.is_file) {
         out.kind = FileStat::Kind::File;
-        out.size = static_cast<keel::i64>(st.size);
+        out.size = keel::as<keel::i64>(st.size);
     } else {
         out.kind = FileStat::Kind::Other;
     }

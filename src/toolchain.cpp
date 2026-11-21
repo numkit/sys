@@ -58,7 +58,7 @@ ToolInfo probeCandidate(keel::StringRef name, keel::StringRef exePath,
     info.extraArgs = keel::String(extraArgs);
 
     for (keel::usize i = 0; i < exePath.size(); ++i) {
-        const auto ch = static_cast<keel::u8>(exePath[i]);
+        const auto ch = keel::as<keel::u8>(exePath[i]);
         if (ch < 0x20 || ch == 0x7F)
             return info;
     }
