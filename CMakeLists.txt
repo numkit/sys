@@ -53,6 +53,18 @@ if(EMSCRIPTEN)
     target_compile_options(numkit_sys PRIVATE -fexceptions)
 endif()
 
+if(COMMAND keel_enforce_guidelines)
+    keel_enforce_guidelines(numkit_sys
+        SCOPE ALL
+        BAN_RAW_INTS ALL
+        ALLOW_STDEXCEPT_IN_HEADERS ON
+        HEADERS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        ALLOWED_ANGLE_PREFIXES "numkit/"
+        STANDALONE_HEADERS ${NUMKIT_SYS_BUILD_TESTS}
+        WARNINGS OFF
+    )
+endif()
+
 # Installation rules
 include(GNUInstallDirs)
 install(TARGETS numkit_sys
