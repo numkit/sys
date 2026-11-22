@@ -92,6 +92,15 @@ public:
     virtual void assignToCaller(keel::i32 n, keel::StringRef name, Value val) {
         (void)n; (void)name; (void)val;
     }
+    // Extractor for commands that inject variables into the caller's scope
+    // (e.g. `syms x y` / `syms f(t)`). Plugins declare such commands in their
+    // manifest (`"varDeclCommands": [...]`) so the compiler can pre-allocate
+    // registers without hardcoding plugin names.
+    using VarDeclExtractor = keel::Function<void(keel::ArrayRef<keel::StringRef>,
+                                                 keel::Array<keel::String> &)>;
+    virtual void registerVarDeclCommand(keel::StringRef cmdName, VarDeclExtractor fn) {
+        (void)cmdName; (void)fn;
+    }
 };
 
 #if !defined(NUMKIT_CORE_BUILD)
