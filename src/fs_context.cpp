@@ -167,14 +167,20 @@ keel::i32 FsContext::openFile(keel::StringRef userPath, keel::StringRef modeRaw)
 {
     lastFopenError_.clear();
 
-    keel::StringRef modeView = modeRaw;
-    while (!modeView.empty() && (modeView.back() == 't' || modeView.back() == 'b'))
-        modeView = modeView.substr(0, modeView.size() - 1);
+    keel::String modeNorm;
+    modeNorm.reserve(modeRaw.size());
+    for (keel::usize i = 0; i < modeRaw.size(); ++i) {
+        const char ch = modeRaw[i];
+        if (i > 0 && (ch == 'b' || ch == 't'))
+            continue;
+        modeNorm.push_back(ch);
+    }
+    const keel::StringRef modeView = modeNorm.as_ref();
 
     bool canRead = false, canWrite = false, appendOnly = false, truncate = false, seedBuffer = false;
     if      (modeView == "r")  { canRead = true;  seedBuffer = true; }
-    else if (modeView == "w")  { canWrite = true; truncate = true; }
-    else if (modeView == "a")  { canWrite = true; appendOnly = true; seedBuffer = true; }
+    else if (modeView == "w" || modeView == "W") { canWrite = true; truncate = true; }
+    else if (modeView == "a" || modeView == "A") { canWrite = true; appendOnly = true; seedBuffer = true; }
     else if (modeView == "r+") { canRead = true;  canWrite = true; seedBuffer = true; }
     else if (modeView == "w+") { canRead = true;  canWrite = true; truncate = true; }
     else if (modeView == "a+") { canRead = true;  canWrite = true; appendOnly = true; seedBuffer = true; }
@@ -199,12 +205,22 @@ keel::i32 FsContext::openFile(keel::StringRef userPath, keel::StringRef modeRaw)
     f.forWrite = canWrite;
     f.appendOnly = appendOnly;
 
+    const bool useNativeOsCwd = !isAbsolutePath(userPath)
+        && cwd_.empty() && envGetPrefixed("CWD").empty()
+        && r.fs == findVirtualFS("native");
+    if (useNativeOsCwd && canWrite && modeView != "r+") {
+        f.path = keel::String(userPath);
+    }
+
     if (seedBuffer) {
         const bool requireExisting = (modeView == "r" || modeView == "r+");
         try {
-            if (r.fs->exists(r.path))
-                f.buffer = r.fs->readFile(r.path);
-            else if (requireExisting && !isAbsolutePath(userPath) && r.fs->exists(userPath)) {
+            if (useNativeOsCwd && r.fs->exists(userPath)) {
+                f.path = keel::String(userPath);
+                f.buffer = r.fs->readFile(userPath);
+            } else if (r.fs->exists(f.path)) {
+                f.buffer = r.fs->readFile(f.path);
+            } else if (requireExisting && !isAbsolutePath(userPath) && r.fs->exists(userPath)) {
                 f.path = keel::String(userPath);
                 f.buffer = r.fs->readFile(userPath);
             } else if (requireExisting) {
