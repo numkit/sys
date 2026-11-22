@@ -12,6 +12,7 @@
 #include <numkit/value/value.hpp>
 
 #include <keel/array.h>
+#include <keel/exception.h>
 #include <keel/format.h>
 #include <keel/hash_map.h>
 #include <keel/memory.h>
@@ -19,7 +20,6 @@
 #include <keel/smart_ptr.h>
 #include <keel/string.h>
 
-#include <stdexcept>
 
 namespace numkit::sys {
 
@@ -90,12 +90,12 @@ public:
             fnName = handle.asStringRef();
         }
         if (fnName.empty() || fnName[0] == '@') {
-            throw std::runtime_error(
+            throw keel::Exception(
                 "Anonymous source closures require Full Engine (numkit_engine_create)");
         }
         const ExternalFunc *fn = findExternal(fnName, nullptr);
         if (!fn) {
-            throw std::runtime_error(
+            throw keel::Exception(
                 keel::format("Undefined function handle '{}'", fnName).c_str());
         }
         keel::usize actualOut = nargout == 0 ? 1 : nargout;
@@ -109,7 +109,7 @@ public:
     ops::RngContext &rng() override
     {
         if (!rng_) {
-            throw std::runtime_error("RngContext is not attached to this LitePluginContext");
+            throw keel::Exception("RngContext is not attached to this LitePluginContext");
         }
         return *rng_;
     }
@@ -121,7 +121,7 @@ public:
 
     FigureManager &figureManager() override
     {
-        throw std::runtime_error("FigureManager is not available in LitePluginContext");
+        throw keel::Exception("FigureManager is not available in LitePluginContext");
     }
 
     const ExternalFunc *findExternal(keel::StringRef name,
@@ -183,7 +183,7 @@ public:
                         keel::MutArrayRef<Value> outs)
     {
         if (!fn) {
-            throw std::invalid_argument("Null pre-resolved function pointer");
+            throw keel::Exception(keel::ErrorCode::InvalidArgument, "Null pre-resolved function pointer");
         }
         CallContext ctx{reinterpret_cast<Engine *>(static_cast<PluginContext *>(this)), nullptr};
         (*fn)(args, nargout, outs, ctx);
@@ -217,9 +217,9 @@ public:
         const ExternalFunc *fn = resolve(ns, name);
         if (!fn) {
             if (ns.empty()) {
-                throw std::runtime_error(keel::format("Undefined function '{}'", name).c_str());
+                throw keel::Exception(keel::format("Undefined function '{}'", name).c_str());
             }
-            throw std::runtime_error(keel::format("Undefined function '{}.{}'", ns, name).c_str());
+            throw keel::Exception(keel::format("Undefined function '{}.{}'", ns, name).c_str());
         }
         (*fn)(args, nargout, outs, ctx);
     }

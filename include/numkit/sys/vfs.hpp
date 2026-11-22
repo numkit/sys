@@ -4,13 +4,13 @@
 #pragma once
 
 #include <keel/array.h>
+#include <keel/exception.h>
 #include <keel/core.h>
 #include <keel/format.h>
 #include <keel/function.h>
 #include <keel/optional.h>
 #include <keel/string.h>
 
-#include <stdexcept>
 
 namespace numkit::sys {
 
@@ -49,7 +49,7 @@ public:
 
     virtual keel::Array<DirEntry> listDir(keel::StringRef /*path*/)
     {
-        throw std::runtime_error(keel::format("{}: listDir not supported", name()).c_str());
+        throw keel::Exception(keel::format("{}: listDir not supported", name()).c_str());
     }
 
     virtual keel::Optional<FileStat> stat(keel::StringRef /*path*/)
@@ -59,17 +59,17 @@ public:
 
     virtual void mkdir(keel::StringRef /*path*/)
     {
-        throw std::runtime_error(keel::format("{}: mkdir not supported", name()).c_str());
+        throw keel::Exception(keel::format("{}: mkdir not supported", name()).c_str());
     }
 
     virtual void rmdir(keel::StringRef /*path*/)
     {
-        throw std::runtime_error(keel::format("{}: rmdir not supported", name()).c_str());
+        throw keel::Exception(keel::format("{}: rmdir not supported", name()).c_str());
     }
 
     virtual void unlink(keel::StringRef /*path*/)
     {
-        throw std::runtime_error(keel::format("{}: unlink not supported", name()).c_str());
+        throw keel::Exception(keel::format("{}: unlink not supported", name()).c_str());
     }
 
     virtual keel::String tempArea()
@@ -129,13 +129,13 @@ public:
     keel::String readFile(keel::StringRef path) override
     {
         if (!read_)
-            throw std::runtime_error(keel::format("{}: read hook not installed", name_).c_str());
+            throw keel::Exception(keel::format("{}: read hook not installed", name_).c_str());
         return read_(path);
     }
     void writeFile(keel::StringRef path, keel::StringRef content) override
     {
         if (!write_)
-            throw std::runtime_error(keel::format("{}: write hook not installed", name_).c_str());
+            throw keel::Exception(keel::format("{}: write hook not installed", name_).c_str());
         write_(path, content);
     }
     bool exists(keel::StringRef path) override { return exists_ ? exists_(path) : false; }

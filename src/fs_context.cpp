@@ -5,9 +5,9 @@
 #include <numkit/sys/fs_context.hpp>
 
 #include <keel/algo.h>
+#include <keel/exception.h>
 #include <keel/format.h>
 
-#include <stdexcept>
 
 namespace numkit::sys {
 
@@ -123,7 +123,7 @@ FsContext::ResolvedPath FsContext::resolvePath(keel::StringRef userPath) const
     if (!split.scheme.empty()) {
         auto *fs = findVirtualFS(split.scheme);
         if (!fs)
-            throw std::runtime_error(
+            throw keel::Exception(
                 keel::format("unknown filesystem '{}' in path", split.scheme).c_str());
         return {fs, keel::String(split.rest)};
     }
@@ -143,7 +143,7 @@ FsContext::ResolvedPath FsContext::resolvePath(keel::StringRef userPath) const
 
     VirtualFS *fs = findVirtualFS(fsName);
     if (!fs)
-        throw std::runtime_error(
+        throw keel::Exception(
             keel::format("filesystem '{}' is not available", fsName).c_str());
 
     keel::String path(userPath);

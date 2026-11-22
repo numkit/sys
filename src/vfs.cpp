@@ -5,6 +5,7 @@
 #include <numkit/sys/vfs.hpp>
 
 #include <keel/format.h>
+#include <keel/exception.h>
 #include <keel/fs.h>
 
 namespace numkit::sys {
@@ -13,7 +14,7 @@ keel::String NativeFS::readFile(keel::StringRef path)
 {
     auto res = keel::fs_read_text(path);
     if (res.is_err())
-        throw std::runtime_error(keel::format("cannot open '{}' for reading", path).c_str());
+        throw keel::Exception(keel::format("cannot open '{}' for reading", path).c_str());
     return keel::move(res.value());
 }
 
@@ -21,7 +22,7 @@ void NativeFS::writeFile(keel::StringRef path, keel::StringRef content)
 {
     keel::Error err = keel::fs_write_text(path, content);
     if (err.is_err())
-        throw std::runtime_error(keel::format("cannot open '{}' for writing", path).c_str());
+        throw keel::Exception(keel::format("cannot open '{}' for writing", path).c_str());
     (void)keel::fs_set_mtime_now(path);
 }
 
@@ -42,7 +43,7 @@ keel::Array<DirEntry> NativeFS::listDir(keel::StringRef path)
     });
     if (err.is_err()) {
         const keel::StringRef msg = keel::error_message(err);
-        throw std::runtime_error(
+        throw keel::Exception(
             keel::format("cannot list directory '{}': {}", path, msg).c_str());
     }
     return out;
@@ -75,7 +76,7 @@ void NativeFS::mkdir(keel::StringRef path)
     keel::Error err = keel::fs_create_dirs(path);
     if (err.is_err()) {
         const keel::StringRef msg = keel::error_message(err);
-        throw std::runtime_error(keel::format("cannot mkdir '{}': {}", path, msg).c_str());
+        throw keel::Exception(keel::format("cannot mkdir '{}': {}", path, msg).c_str());
     }
 }
 
@@ -83,12 +84,12 @@ void NativeFS::rmdir(keel::StringRef path)
 {
     auto st = keel::fs_stat(path);
     if (st.is_err() || !st.value().is_dir)
-        throw std::runtime_error(
+        throw keel::Exception(
             keel::format("cannot rmdir '{}': not a directory or absent", path).c_str());
     keel::Error err = keel::fs_remove(path);
     if (err.is_err()) {
         const keel::StringRef msg = keel::error_message(err);
-        throw std::runtime_error(keel::format("cannot rmdir '{}': {}", path, msg).c_str());
+        throw keel::Exception(keel::format("cannot rmdir '{}': {}", path, msg).c_str());
     }
 }
 
@@ -96,12 +97,12 @@ void NativeFS::unlink(keel::StringRef path)
 {
     auto st = keel::fs_stat(path);
     if (st.is_err() || st.value().is_dir)
-        throw std::runtime_error(
+        throw keel::Exception(
             keel::format("cannot delete '{}': absent or directory", path).c_str());
     keel::Error err = keel::fs_remove(path);
     if (err.is_err()) {
         const keel::StringRef msg = keel::error_message(err);
-        throw std::runtime_error(keel::format("cannot delete '{}': {}", path, msg).c_str());
+        throw keel::Exception(keel::format("cannot delete '{}': {}", path, msg).c_str());
     }
 }
 

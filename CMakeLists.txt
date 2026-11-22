@@ -57,7 +57,8 @@ if(COMMAND keel_enforce_guidelines)
     keel_enforce_guidelines(numkit_sys
         SCOPE ALL
         BAN_RAW_INTS ALL
-        ALLOW_STDEXCEPT_IN_HEADERS ON
+        ALLOW_STDEXCEPT OFF
+        ALLOW_STDEXCEPT_IN_HEADERS OFF
         HEADERS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include"
         ALLOWED_ANGLE_PREFIXES "numkit/"
         STANDALONE_HEADERS ${NUMKIT_SYS_BUILD_TESTS}
