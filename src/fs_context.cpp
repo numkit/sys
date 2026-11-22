@@ -179,8 +179,8 @@ keel::i32 FsContext::openFile(keel::StringRef userPath, keel::StringRef modeRaw)
 
     bool canRead = false, canWrite = false, appendOnly = false, truncate = false, seedBuffer = false;
     if      (modeView == "r")  { canRead = true;  seedBuffer = true; }
-    else if (modeView == "w" || modeView == "W") { canWrite = true; truncate = true; }
-    else if (modeView == "a" || modeView == "A") { canWrite = true; appendOnly = true; seedBuffer = true; }
+    else if (modeView.equals_ignore_ascii_case("w")) { canWrite = true; truncate = true; }
+    else if (modeView.equals_ignore_ascii_case("a")) { canWrite = true; appendOnly = true; seedBuffer = true; }
     else if (modeView == "r+") { canRead = true;  canWrite = true; seedBuffer = true; }
     else if (modeView == "w+") { canRead = true;  canWrite = true; truncate = true; }
     else if (modeView == "a+") { canRead = true;  canWrite = true; appendOnly = true; seedBuffer = true; }
