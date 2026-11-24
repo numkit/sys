@@ -101,7 +101,7 @@ public:
         keel::usize actualOut = nargout == 0 ? 1 : nargout;
         keel::Array<Value> outs(alloc_);
         outs.resize(actualOut);
-        CallContext ctx{reinterpret_cast<Engine *>(static_cast<PluginContext *>(this)), nullptr};
+        CallContext ctx{this, nullptr};
         (*fn)(args, nargout, keel::MutArrayRef<Value>(outs.data(), outs.size()), ctx);
         return outs;
     }
@@ -185,7 +185,7 @@ public:
         if (!fn) {
             throw keel::Exception(keel::ErrorCode::InvalidArgument, "Null pre-resolved function pointer");
         }
-        CallContext ctx{reinterpret_cast<Engine *>(static_cast<PluginContext *>(this)), nullptr};
+        CallContext ctx{this, nullptr};
         (*fn)(args, nargout, outs, ctx);
     }
 
@@ -195,7 +195,7 @@ public:
                 keel::usize nargout,
                 keel::MutArrayRef<Value> outs)
     {
-        CallContext ctx{reinterpret_cast<Engine *>(static_cast<PluginContext *>(this)), nullptr};
+        CallContext ctx{this, nullptr};
 
         if (!args.empty() && args[0].isObject()) {
             const BuiltinClass *cls = findClass(args[0].objectClassNameRef());
@@ -232,8 +232,7 @@ public:
             if (const ObjectMethod *charFn = cls->methods.get("char"); charFn && *charFn) {
                 Value selfCopy = v;
                 Value out;
-                CallContext ctx{
-                    reinterpret_cast<Engine *>(const_cast<LitePluginContext *>(this)), nullptr};
+                CallContext ctx{const_cast<LitePluginContext *>(this), nullptr};
                 (*charFn)(selfCopy, keel::ArrayRef<Value>(), 1, keel::MutArrayRef<Value>(&out, 1), ctx);
                 if (out.isChar() || out.isString()) {
                     return out.toString();
@@ -260,7 +259,7 @@ private:
                                                           keel::MutArrayRef<Value> outs,
                                                           CallContext &ctx) {
             CallContext localCtx = ctx;
-            localCtx.engine = reinterpret_cast<Engine *>(static_cast<PluginContext *>(this));
+            localCtx.engine = this;
             fn(args, nargout, outs, localCtx);
         }, alloc_);
     }

@@ -54,6 +54,10 @@ if(EMSCRIPTEN)
 endif()
 
 if(COMMAND keel_enforce_guidelines)
+    set(_NK_SYS_GUIDELINE_DEFS "")
+    if(MSVC)
+        set(_NK_SYS_GUIDELINE_DEFS COMPILE_DEFINITIONS "__EXCEPTIONS=1")
+    endif()
     keel_enforce_guidelines(numkit_sys
         SCOPE ALL
         BAN_RAW_INTS ALL
@@ -62,6 +66,7 @@ if(COMMAND keel_enforce_guidelines)
         HEADERS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include"
         ALLOWED_ANGLE_PREFIXES "numkit/"
         STANDALONE_HEADERS ${NUMKIT_SYS_BUILD_TESTS}
+        ${_NK_SYS_GUIDELINE_DEFS}
         WARNINGS OFF
     )
 endif()

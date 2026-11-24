@@ -40,10 +40,6 @@ namespace numkit {
 namespace ops { class RngContext; }
 class FigureManager;
 
-#if defined(NUMKIT_CORE_BUILD)
-class Engine;
-#endif
-
 class PluginContext;
 class Environment;
 struct CallContext;
@@ -103,13 +99,9 @@ public:
     }
 };
 
-#if !defined(NUMKIT_CORE_BUILD)
-using Engine = PluginContext;
-#endif
-
 struct CallContext
 {
-    Engine *engine{nullptr};
+    PluginContext *engine{nullptr};
     Environment *env{nullptr};
 };
 
