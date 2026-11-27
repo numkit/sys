@@ -114,6 +114,82 @@ keel::String joinPath(keel::StringRef base, keel::StringRef rel)
     return keel::format("{}/{}", base, rel);
 }
 
+// Lexically collapse '.' and '..' segments so joined relative paths
+// (e.g. addpath(genpath('..')) from deep subdirectories) stay canonical
+// and do not trip OS path-length limits with redundant parent hops.
+keel::String lexicalNormalizePath(keel::StringRef raw)
+{
+    if (raw.empty())
+        return keel::String();
+
+    keel::String prefix;
+    keel::usize i = 0;
+    bool rooted = false;
+
+    // Windows drive prefix: "C:/" or "C:\"
+    if (raw.size() >= 2 && raw[1] == ':'
+        && ((raw[0] >= 'A' && raw[0] <= 'Z') || (raw[0] >= 'a' && raw[0] <= 'z'))) {
+        prefix.push_back(raw[0]);
+        prefix.push_back(':');
+        i = 2;
+        if (i < raw.size() && (raw[i] == '/' || raw[i] == '\\')) {
+            prefix.push_back('/');
+            rooted = true;
+            while (i < raw.size() && (raw[i] == '/' || raw[i] == '\\'))
+                ++i;
+        }
+    } else if (raw.size() >= 2 && (raw[0] == '/' || raw[0] == '\\')
+               && (raw[1] == '/' || raw[1] == '\\')) {
+        // UNC root "//server/share"
+        prefix.append("//");
+        rooted = true;
+        i = 2;
+        while (i < raw.size() && (raw[i] == '/' || raw[i] == '\\'))
+            ++i;
+    } else if (raw[0] == '/' || raw[0] == '\\') {
+        prefix.push_back('/');
+        rooted = true;
+        i = 1;
+        while (i < raw.size() && (raw[i] == '/' || raw[i] == '\\'))
+            ++i;
+    }
+
+    keel::Array<keel::StringRef> segs;
+    while (i < raw.size()) {
+        while (i < raw.size() && (raw[i] == '/' || raw[i] == '\\'))
+            ++i;
+        if (i >= raw.size())
+            break;
+        const keel::usize start = i;
+        while (i < raw.size() && raw[i] != '/' && raw[i] != '\\')
+            ++i;
+        const keel::StringRef seg = raw.substr(start, i - start);
+        if (seg == ".")
+            continue;
+        if (seg == "..") {
+            if (!segs.empty() && segs.back() != "..") {
+                segs.pop_back();
+            } else if (!rooted) {
+                segs.push_back(seg);
+            }
+            continue;
+        }
+        segs.push_back(seg);
+    }
+
+    keel::String out;
+    out.reserve(raw.size());
+    out.append(prefix);
+    for (keel::usize k = 0; k < segs.size(); ++k) {
+        if (k > 0)
+            out.push_back('/');
+        out.append(segs[k]);
+    }
+    if (out.empty())
+        out.push_back('.');
+    return out;
+}
+
 } // namespace
 
 FsContext::ResolvedPath FsContext::resolvePath(keel::StringRef userPath) const
@@ -157,6 +233,7 @@ FsContext::ResolvedPath FsContext::resolvePath(keel::StringRef userPath) const
         if (!cwdVal.empty())
             path = joinPath(cwdVal, path);
     }
+    path = lexicalNormalizePath(path.as_ref());
 
     return {fs, keel::move(path)};
 }

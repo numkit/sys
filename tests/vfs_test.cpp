@@ -39,3 +39,19 @@ TEST(VfsTest, FsContextPathResolution)
     ASSERT_NE(resolved.fs, nullptr);
     EXPECT_EQ(resolved.fs->name(), "native");
 }
+
+TEST(VfsTest, FsContextLexicalDotDotNormalization)
+{
+    FsContext ctx;
+    ctx.registerVirtualFS(keel::make_unique<NativeFS>());
+    ctx.setCwd("C:/work/project/subdir");
+
+    auto sibling = ctx.resolvePath("../helpers/fn.m");
+    EXPECT_EQ(sibling.path, "C:/work/project/helpers/fn.m");
+
+    auto parentOnly = ctx.resolvePath("..");
+    EXPECT_EQ(parentOnly.path, "C:/work/project");
+
+    auto dotted = ctx.resolvePath("./a/./b/../c");
+    EXPECT_EQ(dotted.path, "C:/work/project/subdir/a/c");
+}
