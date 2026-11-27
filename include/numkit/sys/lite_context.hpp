@@ -119,11 +119,6 @@ public:
         return fs_.resolvePath(userPath);
     }
 
-    FigureManager &figureManager() override
-    {
-        throw keel::Exception("FigureManager is not available in LitePluginContext");
-    }
-
     const ExternalFunc *findExternal(keel::StringRef name,
                                      const Environment * /*env*/) const override
     {

@@ -38,7 +38,6 @@
 namespace numkit {
 
 namespace ops { class RngContext; }
-class FigureManager;
 
 class PluginContext;
 class Environment;
@@ -74,7 +73,6 @@ public:
 
     virtual ops::RngContext &rng() = 0;
     virtual FsContext::ResolvedPath resolvePath(keel::StringRef userPath) const = 0;
-    virtual FigureManager &figureManager() = 0;
     virtual void registerBuiltinMSource(keel::StringRef src) { (void)src; }
     virtual const ExternalFunc *findExternal(keel::StringRef name, const Environment *env = nullptr) const {
         (void)name; (void)env;
